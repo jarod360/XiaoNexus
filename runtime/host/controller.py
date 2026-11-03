@@ -123,8 +123,11 @@ def main():
                     print('receiver unavailable at PCM gate; disarmed')
                     continue
                 for action in router.confirmed_gate(value):
-                    submit({'kind': 'refusal', 'dialog_id': action['dialog_id'],
-                            'query': action['query']})
+                    payload = {'kind': action['action'], 'dialog_id': action['dialog_id'],
+                               'query': action['query']}
+                    if action['action'] == 'expand':
+                        payload['native_answer'] = action['native_answer']
+                    submit(payload)
             elif typ == 'oem':
                 for action in router.feed(value):
                     if action['action'] == 'arm':
@@ -133,14 +136,11 @@ def main():
                                 print('owner not eligible for this dialog: OEM pass-through')
                         else:
                             print('receiver unhealthy: no new PCM gate')
-                    elif action['action'] == 'expand':
+                    elif action['action'] == 'arm_expand':
                         if healthy():
-                            # Exact opt-in command. Previous OEM knowledge query,
-                            # not the command's text, is sent to DeepSeek.
-                            if script.exports_sync.armdialog(action['dialog_id']):
-                                pass  # may suppress the OEM's standard refusal
-                            submit({'kind': 'expand', 'dialog_id': action['dialog_id'],
-                                    'query': action['query'], 'native_answer': action['native_answer']})
+                            # Never submit until the opt-in OEM reply has its own gate Owner.
+                            if not script.exports_sync.armexpand(action['dialog_id']):
+                                print('expansion not eligible for an OEM PCM gate')
                     elif action['action'] == 'expand_unavailable':
                         print('no immediately previous confirmed OEM knowledge answer')
     except KeyboardInterrupt:

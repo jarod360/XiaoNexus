@@ -91,6 +91,7 @@ class SessionRouter:
         self.last_dialog = None
         self.last_native = None
         self.sent = OrderedDict()
+        self.expands = OrderedDict()
 
     def feed(self, inst: Instruction):
         now = self.clock()
@@ -106,9 +107,10 @@ class SessionRouter:
                 self.queries.popitem(last=False)
             if expand:
                 if previous and previous[0] == last_dialog and now - previous[3] <= self.ttl:
-                    return [{'action': 'expand', 'dialog_id': inst.dialog_id,
-                             'source_dialog_id': previous[0], 'query': previous[1],
-                             'native_answer': previous[2][:1500]}]
+                    self.expands[inst.dialog_id] = (previous[1], previous[2][:1500])
+                    while len(self.expands) > 64:
+                        self.expands.popitem(last=False)
+                    return [{'action': 'arm_expand', 'dialog_id': inst.dialog_id}]
                 return [{'action': 'expand_unavailable', 'dialog_id': inst.dialog_id}]
             return [{'action': 'arm', 'dialog_id': inst.dialog_id}]
         if inst.kind == 'knowledge':
@@ -124,9 +126,15 @@ class SessionRouter:
         if not info or dialog_id in self.sent:
             return []
         query, created, expand = info
-        if self.clock() - created > 12 or expand:
+        if self.clock() - created > 12:
+            return []
+        if expand and dialog_id not in self.expands:
             return []
         self.sent[dialog_id] = self.clock()
         while len(self.sent) > 64:
             self.sent.popitem(last=False)
+        if expand:
+            previous_query, previous_answer = self.expands.pop(dialog_id)
+            return [{'action': 'expand', 'dialog_id': dialog_id,
+                     'query': previous_query, 'native_answer': previous_answer}]
         return [{'action': 'refusal', 'dialog_id': dialog_id, 'query': query}]

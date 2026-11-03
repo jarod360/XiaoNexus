@@ -32,8 +32,9 @@ func TestExpandsLastNativeKnowledgeOnly(t *testing.T){
  if x:=r.feed(instruction{"asr",a,"黑洞是什么"});x.kind!="arm"{t.Fatal(x)}
  r.feed(instruction{"knowledge",a,"一种时空区域"})
  now=now.Add(time.Second)
- if x:=r.feed(instruction{"asr",b,"让DeepSeek完善下小爱同学上轮的回答"});x.kind!="expand"||x.query!="黑洞是什么"{t.Fatal(x)}
- if x:=r.gate(b);x.kind!=""{t.Fatal("expand must never route refusal",x)}
+ if x:=r.feed(instruction{"asr",b,"让DeepSeek完善下小爱同学上轮的回答"});x.kind!="arm_expand"{t.Fatal(x)}
+ if x:=r.gate(b);x.kind!="expand"||x.query!="黑洞是什么"||x.answer!="一种时空区域"{t.Fatal("expand gate not correlated",x)}
+ if x:=r.gate(b);x.kind!=""{t.Fatal("duplicate expansion gate",x)}
  if x:=r.feed(instruction{"asr",c,"让DeepSeek完善下小爱同学上轮的回答"});x.kind!="expand_unavailable"{t.Fatal(x)}
 }
 func TestOwnerGateAndDedup(t *testing.T){

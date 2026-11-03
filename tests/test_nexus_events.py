@@ -31,8 +31,10 @@ class OEMRouterTest(unittest.TestCase):
         r.feed(Instruction('knowledge', A, '黑洞是时空区域'))
         t[0]=12
         x=r.feed(Instruction('asr', B, '让DeepSeek完善下小爱同学上轮的回答'))
-        self.assertEqual(x[0]['action'], 'expand')
-        self.assertEqual(x[0]['query'], '解释黑洞')
+        self.assertEqual(x[0]['action'], 'arm_expand')
+        routed = r.confirmed_gate(B)
+        self.assertEqual(routed[0]['action'], 'expand')
+        self.assertEqual(routed[0]['query'], '解释黑洞')
         self.assertEqual(r.confirmed_gate(B), [])
     def test_previous_must_be_last_turn(self):
         r=SessionRouter()
