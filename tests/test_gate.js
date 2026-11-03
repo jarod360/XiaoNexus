@@ -414,10 +414,10 @@ test('explicit expansion preserves independent DeepSeek Synthesize',()=>{
 });
 test('frida-inject accepts ARMEXP only for a known OEM Recognize dialog',()=>{
  const t=setup(),id=t.id('a');
- t.rpc.exports.onFridaStdin('ARMEXP '+id+'\\n');
+ t.rpc.exports.onFridaStdin('ARMEXP '+id+'\n');
  assert.equal(t.status().armed,false);
  t.event('SpeechRecognizer.Recognize',id);
- t.rpc.exports.onFridaStdin('ARMEXP '+id+'\\n');
+ t.rpc.exports.onFridaStdin('ARMEXP '+id+'\n');
  assert.equal(t.status().targetedMode,'expand');
  assert.equal(t.status().targetArmed,true);
 });
