@@ -40,6 +40,15 @@ def main() -> None:
         "func (*doorbellGuard) watch(context.Context, func()) {}\n",
         encoding="utf-8",
     )
+
+    nexus = DEST / "client" / "cmd" / "xiaonexus-agent"
+    nexus.mkdir(parents=True, exist_ok=True)
+    for filename in ("main.go", "main_test.go"):
+        shutil.copy2(ROOT / "runtime" / "device-agent" / filename, nexus / filename)
+    # Guard source remains from the pinned XiaoSeek version, not a rewritten implementation.
+    shutil.copy2(agent / "doorbell.go", nexus / "doorbell.go")
+    shutil.copy2(stub, nexus / "doorbell_disabled.go")
+    print("NEXUS_AGENT: independent answer receiver with optional doorbell guard")
     print("PREPARED: " + str(DEST))
     print("STANDARD: doorbell logic excluded by Go build tag")
     print("DOORBELL: original XiaoSeek guard retained under -tags doorbell")

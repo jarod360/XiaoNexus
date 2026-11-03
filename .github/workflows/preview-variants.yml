@@ -16,41 +16,46 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Set up Go from pinned legacy source
+      - name: Set up Go from pinned source
         uses: actions/setup-go@v5
         with:
           go-version-file: legacy/XiaoSeek/client/go.mod
           cache-dependency-path: legacy/XiaoSeek/client/go.sum
-      - name: Set up Node.js for read-only v50.2 regression
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Validate verified Frida experiment (no device)
+      - name: Validate unchanged v50.2 and new v51 gate
         run: |
           node --check experiments/v50.2/lx04_v50_gate.js
           node experiments/v50.2/test_v50.js
-          python3 -m py_compile experiments/v50.2/attach_lab.py
-      - name: Compile both legacy-agent build flavors
+          node --check runtime/frida/lx04_nexus_gate.js
+          node tests/test_gate.js
+      - name: Test OEM event router and host controller
+        run: |
+          python3 -m unittest discover -s tests -p 'test_nexus_events.py' -v
+          python3 -m py_compile runtime/host/controller.py runtime/host/nexus_events.py
+      - name: Compile independent Standard and Doorbell ARMv7 Agents
         run: sh scripts/build-variants.sh
-      - name: Upload separate standard and doorbell preview artifacts
+      - name: Upload two separate bridge previews
         uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-LX04-preview-variants
+          name: XiaoNexus-LX04-bridge-variants
           path: |
-            dist/XiaoNexus-legacy-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-legacy-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-LX04-bridge-standard-armv7.tar.gz
+            dist/XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz
             dist/SHA256SUMS
-      - name: Publish pre-release assets on preview tags only
+      - name: Publish preview-tag assets only
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           prerelease: true
           body: |
-            Experimental legacy-agent builds only. These assets do NOT yet integrate the
-            v50.2 dialogId/PCM/Toast auto-takeover runtime. Standard excludes the
-            optional visual-doorbell guard; Doorbell preserves that private-use guard.
-            Do not overwrite the validated device Agent without a backup and recovery test.
+            Host-assisted XiaoNexus bridge experiment only. Requires Frida 16.6.6
+            and a Windows/ADB host. This release is not an unattended speaker
+            installation. Standard excludes doorbell; Doorbell retains the
+            pinned legacy guard. Do not uninstall a working prior Agent.
           files: |
-            dist/XiaoNexus-legacy-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-legacy-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-LX04-bridge-standard-armv7.tar.gz
+            dist/XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz
             dist/SHA256SUMS
