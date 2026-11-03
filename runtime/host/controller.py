@@ -115,6 +115,13 @@ def main():
             if typ == 'fatal':
                 raise RuntimeError(value)
             if typ == 'gate':
+                if not healthy():
+                    # Minimize the silent-refusal window if the receiver or
+                    # personal doorbell protection changed after ASR final.
+                    try: script.exports_sync.disarm()
+                    except Exception: pass
+                    print('receiver unavailable at PCM gate; disarmed')
+                    continue
                 for action in router.confirmed_gate(value):
                     submit({'kind': 'refusal', 'dialog_id': action['dialog_id'],
                             'query': action['query']})
