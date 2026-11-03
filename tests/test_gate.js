@@ -376,4 +376,50 @@ test('injector announces readiness only after all hooks load',()=>{
  assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_READY\n'));
  assert.equal(t.status().ready,true);
 });
+
+test('explicit expansion is gated only after one matching native owner exists',()=>{
+ const t=setup(),id=t.id('a');
+ t.event('SpeechRecognizer.Recognize',id);
+ assert(t.rpc.exports.armexpand(id));
+ assert.equal(t.status().targetedMode,'expand');
+ t.toast(id,'小爱稍后为你说明');
+ t.speakEvent(id,'小爱正在学习');
+ const p=t.owner(id);t.write(p,Uint8Array.of(1,2,3));t.end(p);
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,1);
+ assert.equal(t.status().uiCounters.uiWaitShown,1);
+ assert.equal(t.messages.length,1);
+ assert.equal(t.messages[0].purpose,'expand');
+ assert.equal(t.messages[0].dialog_id,id);
+});
+test('explicit expansion not armed means original native response stays intact',()=>{
+ const t=setup(),id=t.id('b');
+ t.event('SpeechRecognizer.Recognize',id);t.speakEvent(id,'小爱正在学习');
+ const p=t.owner(id);t.write(p,Uint8Array.of(1,2));t.end(p);
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,0);
+ assert.equal(t.messages.length,0);
+});
+test('explicit expansion must not gate an unrelated Recognize answer',()=>{
+ const t=setup(),a=t.id('c'),b=t.id('d');
+ t.event('SpeechRecognizer.Recognize',a);assert(t.rpc.exports.armexpand(a));
+ orig(t,b,'普通回答');let p=t.owner(b);t.write(p,Uint8Array.of(1));t.end(p);
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,0);
+ assert.equal(t.messages.length,0);
+});
+test('explicit expansion preserves independent DeepSeek Synthesize',()=>{
+ const t=setup(),a=t.id('e'),b=t.id('f');
+ t.event('SpeechRecognizer.Recognize',a);assert(t.rpc.exports.armexpand(a));
+ native(t,b,'DeepSeek正在播报');let p=t.owner(b);t.write(p,Uint8Array.of(1));t.end(p);
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,0);
+ assert.equal(t.messages.length,0);
+});
+test('frida-inject accepts ARMEXP only for a known OEM Recognize dialog',()=>{
+ const t=setup(),id=t.id('a');
+ t.rpc.exports.onFridaStdin('ARMEXP '+id+'\\n');
+ assert.equal(t.status().armed,false);
+ t.event('SpeechRecognizer.Recognize',id);
+ t.rpc.exports.onFridaStdin('ARMEXP '+id+'\\n');
+ assert.equal(t.status().targetedMode,'expand');
+ assert.equal(t.status().targetArmed,true);
+});
+
 console.log('RESULT', passed + ' tests PASS');
