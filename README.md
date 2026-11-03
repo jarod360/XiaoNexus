@@ -92,3 +92,19 @@
 两种产物基于相同固定版本的旧认证和 DeepSeek 客户端。构建时只在 **.build/** 下复制、局部修改源码，不更改 legacy/XiaoSeek 的固定子模块，也不删除原作者门铃贡献。详细说明与 GitHub 预发布工作流见 [双版本构建与 Release](docs/BUILD_VARIANTS.md)。
 
 **发布边界：** 这两个名字带 legacy 的二进制仍沿用旧 ASR 关键词路由与 master-mute，**尚不是**完成新 v50.2 自动拒答接管的 XiaoNexus。仓库已直接收录实机成功的 [v50.2 实验源码](experiments/v50.2/README.md)，无需从本地另行导入才可审阅、执行离线测试；等待统一运行时整合和下一轮设备验证后再发布稳定版。
+
+
+## v51 自动化实验：精确会话接管 + 主动完善上一轮回答
+
+源码已经加入四个独立组件：
+
+- runtime/frida/lx04_nexus_gate.js：在 v50.2 已验证 Hook 基础上增加 **按原厂最终 ASR 的 dialog_id 授权**；只有真实 OEM 拒答 PCM Owner 被接受时才发出 DeepSeek 接管事件。
+- runtime/host/nexus_events.py：关联原厂最终 ASR、Template.General 知识回答和确切拒答话术；**普通问答、天气、米家、音乐一律原厂优先**，不按问题关键词自动分流。
+- runtime/host/controller.py：Windows/ADB + Frida 16.6.6 的自动会话桥接控制器，检查设备接收器可用后才授权目标会话。
+- runtime/device-agent/main.go：独立的 DeepSeek + 小米 RC4 MIoT TTS + BaikeTextActivity 全屏回答服务；没有旧版 global master-mute 或 BACK。
+
+**新增口令：** 小爱正常回答某个知识百科问题后，再次唤醒说“让 DeepSeek 完善下小爱同学上轮的回答”。只接受紧邻上一轮且有 Template.General 知识结果的问题，原厂回答可供参考和纠错；不从音乐、设备控制、过期对话中猜测上个问题。
+
+**两个新 ARMv7 预览版本**：XiaoNexus-LX04-bridge-standard-armv7（无门铃）与 XiaoNexus-LX04-bridge-doorbell-armv7（保留旧版可视门铃抢占/取消/保护）。两者独立编译，不再是旧关键词路由 Agent。
+
+本次 CI 已完成新增 v51 Hook、OEM 会话逻辑的离线测试及两种新 Agent 的 ARMv7 编译。**尚无 v51 实机验收，主机桥接运行时仍需电脑常在线，尚未实现设备端 Frida 自动加载**。因此旧 XiaoSeek 暂时**不要卸载**。完整说明与回滚计划见 [自动化桥接说明](docs/AUTO_BRIDGE.md)。

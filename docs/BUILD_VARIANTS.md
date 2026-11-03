@@ -68,3 +68,17 @@ Go 命令会自行拉取 go.mod 所需公开依赖；需要网络，但不需要
 - 仅门铃变体保留上述功能；standard 不执行网络访问或抢占。
 
 这部分保留作可选私人扩展，但不应成为通用 XiaoNexus 必选前提。
+
+
+## v51 两种独立设备端回答服务
+
+新增构建入口是 xiaonexus-agent，而非历史关键词分流的 lx04-agent。构建脚本从固定 XiaoSeek 源复用账号认证、RC4 MIoT TTS 和 DeepSeek 包；新入口绝不通过 NativeRequest 分流，也不使用全局播放静音或 BACK。
+
+| GitHub Actions 构建资产 | 用途 |
+| --- | --- |
+| XiaoNexus-LX04-bridge-standard-armv7.tar.gz | 通用版；无可视门铃守护，不访问 127.0.0.1:7979 |
+| XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz | 个人版；复用历史 doorbell.go，保留弹窗抢占、取消和保护 |
+
+**这两种是“主机桥接预览版”，不是可独立开机运行的正式版。** 运行时还需要 Frida 16.6.6 的 Windows/ADB host controller。旧版本的 legacy-agent 构建仅作为历史产物保留，不应再用于这次新方案验证。
+
+设备接收器只监听 127.0.0.1:18765，使用私有 256 位控制令牌；不分发原厂 APK、Token 和个人日志。设备上的真实音频、全屏和门铃联动仍待实机验证。详见 [AUTO_BRIDGE.md](AUTO_BRIDGE.md)。
