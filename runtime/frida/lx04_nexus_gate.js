@@ -20,6 +20,7 @@
   var armAt = 0;
   var armRecognizeCount = 0;
   var targetedDialog = null; // bound to a final-ASR dialog by the host bridge
+  var targetedMode = null; // refusal, or explicit opt-in expand
   var armedUI = false;
   var armedUIMode = 'hide';
   var WAIT_TEXT = '请稍等……';
@@ -82,7 +83,7 @@
     });
     while (uiDecisions.size > 32) uiDecisions.delete(uiDecisions.keys().next().value);
   }
-  function clearUi() { uiDecisions.clear(); uiStack.clear(); uiEarlyId=null; armedUI=false; armedUIMode='hide'; targetedDialog=null; }
+  function clearUi() { uiDecisions.clear(); uiStack.clear(); uiEarlyId=null; armedUI=false; armedUIMode='hide'; targetedDialog=null; targetedMode=null; }
   // A shown wait label keeps its own one-shot dismiss timer even if the gate
   // is disarmed. A newer card request cancels it before touching newer UI.
   function markUi(id, answer, mode) {
@@ -253,13 +254,14 @@
       expireArm();
       if (!ready || gateDisabled || errors || armed || pending || countOwners() !== 0) return false;
       armed = true; armedUI = !!withUI; armedUIMode = withWait ? 'wait' : 'hide'; armAt = Date.now(); armRecognizeCount = stats.recognizeEvents; gateStats.armAccepted++;
-      uiEarlyId = null; targetedDialog = null;
+      uiEarlyId = null; targetedDialog = null; targetedMode = null;
       note(withWait ? 'ARM_WAIT_EIGHT_EXACT' : (withUI ? 'ARM_BOTH_EIGHT_EXACT' : 'ARM_ONE_EIGHT_EXACT')); return true;
   }
 
   // Only a live, independently captured final-ASR dialog can be armed.
   // The original v50.2 one-shot methods are unchanged for regression tests.
-  function armDialog(id) {
+  function armDialog(id, mode) {
+    if (mode !== 'expand') mode = 'refusal';
     var wanted = normalizeId(id);
     if (!wanted) return false;
     gateStats.armCalls++;
@@ -274,12 +276,12 @@
     }
     if (armed) return false;
     armed = true; armedUI = true; armedUIMode = 'wait';
-    targetedDialog = wanted; armAt = Date.now();
+    targetedDialog = wanted; targetedMode = mode; armAt = Date.now();
     // Recognize was already observed before the final ASR. Explicit id
     // linkage makes it safe to allow early Toast matching in this case.
     armRecognizeCount = origin.recognizeSeq - 1;
     uiEarlyId = null; gateStats.armAccepted++;
-    note('ARM_TARGET_DIALOG_' + wanted.slice(0,6));
+    note('ARM_TARGET_' + mode.toUpperCase() + '_' + wanted.slice(0,6));
     return true;
   }
   // The official Frida 16.6.6 Android ARM frida-inject -i CLI can
@@ -290,13 +292,14 @@
   }
   rpc.exports = {
     onFridaStdin: function (input) {
-      var m = /^ARM ([a-fA-F0-9]{32})\s*$/.exec(String(input));
+      var m = /^(ARM|ARMEXP) ([a-fA-F0-9]{32})\s*$/.exec(String(input));
       if (!m) return;
-      var id = m[1].toLowerCase();
-      var accepted = armDialog(id);
+      var id = m[2].toLowerCase();
+      var accepted = armDialog(id, m[1] === 'ARMEXP' ? 'expand' : 'refusal');
       emitHostLine('XIAONEXUS_ARM:' + id + ':' + (accepted ? '1' : '0'));
     },
-    armdialog: function (id) { return armDialog(id); },
+    armdialog: function (id) { return armDialog(id, 'refusal'); },
+    armexpand: function (id) { return armDialog(id, 'expand'); },
     armone: function () { return armOne(false, false); },
     armboth: function () { return armOne(true, false); },
     armwait: function () { return armOne(true, true); },
@@ -305,7 +308,7 @@
     },
     status: function () {
       expireArm(); pruneUi();
-      return {ready: ready, mode: 'XIAONEXUS_V51_TARGET_DIALOG', targetArmed: !!targetedDialog,
+      return {ready: ready, mode: 'XIAONEXUS_V51_TARGET_DIALOG', targetArmed: !!targetedDialog, targetedMode: targetedMode,
         armed: armed, armedUI: armedUI, gateDisabled: gateDisabled, armSupported: true, uiSupported: true, waitSupported: true,
         pendingReservation: !!pending, owners: countOwners(), errors: errors,
         gateCounters: Object.assign({}, gateStats), uiCounters: Object.assign({}, uiStats),
@@ -401,6 +404,12 @@
             if (originName === 'SpeechRecognizer.Recognize') stats.speakRecognizeLinked++;
             var answer = String(Java.cast(instruction.getPayload(), Speak).getText());
             var refusal = originName === 'SpeechRecognizer.Recognize' && isRefusalText(answer);
+            // Opt-in expansion only: one exact ASR dialog, nonempty bounded OEM answer.
+            // Normal questions still require the eight complete refusal texts.
+            var expandReply = originName === 'SpeechRecognizer.Recognize' &&
+              targetedMode === 'expand' && targetedDialog === id &&
+              answer.trim().length > 0 && answer.length <= 400;
+            var gateReply = refusal || expandReply;
             if (refusal) stats.exactRefusalReplies++;
             expireArm();
             // A second Speak before task construction invalidates any outstanding reservation.
@@ -414,21 +423,21 @@
             }
             // Nonmatching Speak must never consume the one-shot authorization.
             // The existing 45-second TTL and all task-level safety checks remain.
-            if (armed && !refusal) {
+            if (armed && !gateReply) {
               gateStats.armIgnoredNonmatches++;
               note('ARM_WAIT_MATCH_PASS_ALL_' + originName);
             }
-            if (armed && refusal && ((targetedDialog && targetedDialog !== id) || (uiEarlyId && uiEarlyId !== id))) {
+            if (armed && gateReply && ((targetedDialog && targetedDialog !== id) || (uiEarlyId && uiEarlyId !== id))) {
               gateStats.armIgnoredNonmatches++;
               note('EARLY_TOAST_DIALOG_MISMATCH_PASS_ALL');
-            } else if (armed && refusal) {
+            } else if (armed && gateReply) {
               var combineUI = armedUI;
               var combineUIMode = armedUIMode;
               armed = false; armedUI = false; armedUIMode = 'hide'; uiEarlyId = null; gateStats.armConsumed++;
               if (countOwners() === 0 && !gateDisabled) {
                 pending = {id:id, number:sequence+1, when:Date.now(), ui:combineUI, uiMode:combineUIMode, text:answer.trim()};
                 gateStats.reservationAccepted++;
-                note('EXACT_REFUSAL_RESERVED');
+                note(expandReply && !refusal ? 'EXPAND_REPLY_RESERVED' : 'EXACT_REFUSAL_RESERVED');
               } else {
                 if (uiDecisions.has(id)) {
                   uiStats.uiEarlyAudioNotAccepted++;
@@ -438,7 +447,7 @@
               }
             }
             speaks.set(id, {number: ++sequence, origin: originName,
-              originPath: originPath, qualifiedOrigins: qualifiedOrigins, exact: refusal, when: Date.now()});
+              originPath: originPath, qualifiedOrigins: qualifiedOrigins, exact: gateReply, refusal: refusal, expand:expandReply, when: Date.now()});
           }
         } catch (_) { error('speak'); }
         return speak.call(this, instruction);
@@ -481,14 +490,14 @@
             originName: sr ? sr.origin : 'NO_MATCHING_SPEAK',
             originPath: sr ? sr.originPath.slice() : [],
             qualifiedOrigins: sr ? sr.qualifiedOrigins.slice() : [],
-            exactRefusal: !!sr && sr.exact, mode: mode, pcmBlocks: 0,
+            exactRefusal: !!sr && !!sr.refusal, mode: mode, pcmBlocks: 0,
             pcmBytes: 0, eofMarkers: 0, eofSeen: false, cancelSeen: false,
             droppedBlocks:0, droppedBytes:0, gateWasActive:allowGate, gateActive:allowGate,
             gateStopped:false, gateStartedAt:Date.now()};
           if (allowGate) { gateStats.gateOwners++; note('GATE_OWNER_ACCEPTED');
             if (reservationUi && reservationText) markUi(id, reservationText, reservationUiMode);
             if (targetedDialog === id) {
-              try { send({kind:'gate_accepted', dialog_id:id}); }
+              try { send({kind:'gate_accepted', dialog_id:id, purpose:targetedMode === 'expand' ? 'expand' : 'refusal'}); }
               catch (_) { note('HOST_EVENT_UNAVAILABLE'); }
             }
           }
@@ -587,7 +596,7 @@
             if (recognized && refusal) uiStats.refusalHelperObserved++;
             var sr = id ? speaks.get(id) : null;
             var decision = id ? uiDecisions.get(id) : null;
-            if (!decision && id && recognized && refusal) {
+            if (!decision && id && recognized && (refusal || (targetedMode === 'expand' && targetedDialog === id))) {
               // A Recognize timestamp equal to ARM time is insufficient: VM
               // clock precision is only milliseconds. Use monotonically counted
               // post-ARM Recognize events to exclude previous conversations.
