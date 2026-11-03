@@ -115,3 +115,6 @@
 The two ARMv7 candidate archives now each contain the new answer receiver, a separate xiaonexus-supervisor ARMv7 executable, the Frida gate JavaScript and SHA256SUMS. Supervisor startup defaults to OBSERVE_ONLY; it cannot modify PCM unless --enable is explicitly selected. The matching official frida-inject 16.6.6 android-arm binary is intentionally not bundled.
 
 Last-answer expansion accepts only the immediately preceding OEM Template.General with skill_icon.description=智能问答. OEM calculators also emit Template.General and are deliberately excluded. Real-device validation of native TTS overlap for the explicit expansion command is still pending. Do not uninstall the old working XiaoSeek until acceptance of auto-attach, detach, refusal routing, last-answer context, doorbell and recovery. See docs/AUTO_BRIDGE.md.
+
+
+**Safe first check:** Run the read-only [Windows D-drive preflight](scripts/Preflight_XiaoNexus.ps1) before staging anything on the speaker. The required two-stage device observation and rollback checklist remains in [AUTO_BRIDGE](docs/AUTO_BRIDGE.md).

@@ -31,6 +31,13 @@ jobs:
           node experiments/v50.2/test_v50.js
           node --check runtime/frida/lx04_nexus_gate.js
           node tests/test_gate.js
+      - name: Parse Windows preflight without executing device operations
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('scripts/Preflight_XiaoNexus.ps1', [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -ne 0) { $parseErrors | Format-List; exit 1 }
       - name: Test OEM event router and host controller
         run: |
           python3 -m unittest discover -s tests -p 'test_nexus_events.py' -v

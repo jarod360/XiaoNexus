@@ -94,3 +94,15 @@ These are safe commissioning instructions, not a claim of completed installation
 ### Supervisor singleton
 
 A device-local kernel flock protects the private /data/adb/xiaonexus/supervisor.lock file. The second attempted supervisor exits without attaching a second hook; after normal or abnormal process termination the kernel releases the lock. This guard applies to the new supervisor only, not to an unrelated old XiaoSeek process, so do not start both services concurrently.
+
+
+### Windows first-device read-only preflight
+
+From D:\\Codex\\XiaoNexus (PowerShell 5.1):
+
+~~~powershell
+Set-Location 'D:\\Codex\\XiaoNexus'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\\scripts\\Preflight_XiaoNexus.ps1' -Device '192.168.0.192:5555'
+~~~
+
+The script reads Android SDK/ABI, the main OEM PID (not :miot), current old Agent and Frida process counts, and root access. It **never** pushes a binary, modifies the APK, stops a process, changes tokens, or touches the old service. Passing this check does not authorize active injection. D:\\Codex only; do not install or stage files under C:\\.
