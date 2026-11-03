@@ -71,5 +71,27 @@ class OEMRouterTest(unittest.TestCase):
         r.feed(Instruction('speak', A, '好'))
         self.assertEqual(r.feed(Instruction('asr', B, '让DeepSeek完善下小爱同学上轮的回答'))[0]['action'],'expand_unavailable')
 
+
+    def test_real_oem_general_skill_filter(self):
+        card = {'text': '蓝色光容易散射', 'skill_icon': {'description': '智能问答'}}
+        self.assertEqual(parse_instruction(line('Template.General', A, card)),
+                         Instruction('knowledge', A, '蓝色光容易散射'))
+        self.assertIsNone(parse_instruction(line('Template.General', A,
+                          {'text': '1+99×2=199', 'skill_icon': {'description': '计算器'}})))
+        self.assertIsNone(parse_instruction(line('Template.General', A,
+                          {'text': '神秘结果'})))
+        self.assertIsNone(parse_instruction(line('Template.General', A,
+                          {'text': '设备正常', 'skill_icon': {'description': '米家'}})))
+
+    def test_calculator_does_not_become_previous_knowledge(self):
+        router = SessionRouter()
+        router.feed(Instruction('asr', A, '一加九十九乘二'))
+        for inst in (parse_instruction(line('Template.General', A,
+                         {'text': '1+99×2=199', 'skill_icon': {'description': '计算器'}})),):
+            if inst:
+                router.feed(inst)
+        answer = router.feed(Instruction('asr', B, '让DeepSeek完善下小爱同学上轮的回答'))
+        self.assertEqual(answer[0]['action'], 'expand_unavailable')
+
 if __name__=='__main__':
     unittest.main()

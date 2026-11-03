@@ -47,7 +47,7 @@ func parseOEM(line string) (instruction, bool) {
  if pos<0 {return instruction{},false}
  var raw struct {
   Header struct{ Namespace string `json:"namespace"`; Name string `json:"name"`; DialogID string `json:"dialog_id"` } `json:"header"`
-  Payload struct{ Text string `json:"text"`; Final bool `json:"is_final"`; Results []struct{ Text string `json:"text"` } `json:"results"` } `json:"payload"`
+  Payload struct{ Text string `json:"text"`; Final bool `json:"is_final"`; SkillIcon struct{ Description string `json:"description"` } `json:"skill_icon"`; Results []struct{ Text string `json:"text"` } `json:"results"` } `json:"payload"`
  }
  if json.Unmarshal([]byte(strings.TrimSpace(line[pos+len("instruction="):])), &raw)!=nil {return instruction{},false}
  id:=strings.ToLower(raw.Header.DialogID)
@@ -58,7 +58,11 @@ func parseOEM(line string) (instruction, bool) {
  case "SpeechRecognizer.RecognizeResult":
   if !raw.Payload.Final || len(raw.Payload.Results)==0 {return instruction{},false}
   kind="asr";text=raw.Payload.Results[0].Text
- case "Template.General":kind="knowledge";text=raw.Payload.Text
+ case "Template.General":
+  // Real OEM logs show Calculator and other skills also use Template.General.
+  // Only the stock encyclopedic 智能问答 card is eligible for last-answer expansion.
+  if raw.Payload.SkillIcon.Description!="智能问答"{return instruction{},false}
+  kind="knowledge";text=raw.Payload.Text
  default:return instruction{},false
  }
  text=strings.TrimSpace(text)

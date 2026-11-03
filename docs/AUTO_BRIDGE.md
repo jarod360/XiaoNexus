@@ -16,7 +16,7 @@
 
 先让小爱原生回答某个问题，再唤醒说：“让 DeepSeek 完善下小爱同学上轮的回答”。
 
-- 上一轮必须是真实 OEM Template.General 知识回答，不是音乐或设备控制，不是普通 Speak 或失败 Toast。
+- 上一轮必须是原厂 `Template.General` **且 `payload.skill_icon.description` 精确为“智能问答”** 的知识百科回答，并且有同 `dialog_id` 的最终 ASR；不能只看 Template.General 名称。真实 OEM 日志里计算器 `1+99×2=199` 也使用 Template.General，但 skill_icon 是“计算器”，必须排除。普通 Speak、Toast、音乐和设备控制也不能建立上轮知识缓存。
 - 问题必须紧邻上一轮，默认 5 分钟内；任意第三轮问答会使更早的“上轮”失效。
 - DeepSeek 重新回答**原问题**；旧回答只是可纠错的背景，不盲目扩写错误结论。
 - 没有可确认的上一轮则不调用 DeepSeek。对这句口令，原厂可能播报未知拒答，这一音频竞争边界尚待实机验证。

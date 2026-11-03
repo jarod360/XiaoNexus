@@ -62,6 +62,10 @@ def parse_instruction(line: str) -> Optional[Instruction]:
             text = data['results'][0].get('text', '')
             kind = 'asr'
         elif name == 'Template.General':
+            # The OEM also uses Template.General for the calculator and other
+            # skills; allow only the verified encyclopedic 智能问答 category.
+            if not isinstance(data.get('skill_icon'), dict) or data['skill_icon'].get('description') != '智能问答':
+                return None
             text = data.get('text', '')
             kind = 'knowledge'
         elif name == 'Template.Toast':
