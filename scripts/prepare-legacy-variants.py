@@ -48,6 +48,11 @@ def main() -> None:
     # Guard source remains from the pinned XiaoSeek version, not a rewritten implementation.
     shutil.copy2(agent / "doorbell.go", nexus / "doorbell.go")
     shutil.copy2(stub, nexus / "doorbell_disabled.go")
+    sup = DEST / "client" / "cmd" / "xiaonexus-supervisor"
+    sup.mkdir(parents=True, exist_ok=True)
+    for filename in ("main.go", "main_test.go"):
+        shutil.copy2(ROOT / "runtime" / "device-supervisor" / filename, sup / filename)
+    print("NEXUS_SUPERVISOR: on-device official Frida 16.6.6 ARM injector")
     print("NEXUS_AGENT: independent answer receiver with optional doorbell guard")
     print("PREPARED: " + str(DEST))
     print("STANDARD: doorbell logic excluded by Go build tag")
