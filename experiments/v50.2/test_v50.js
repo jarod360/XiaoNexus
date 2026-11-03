@@ -300,3 +300,4 @@ test('a pre-ARM Recognize in the same millisecond is not a fresh Toast target',(
   assert(t.status().armed);
 });
 console.log('RESULT', passed + ' tests PASS');
+
