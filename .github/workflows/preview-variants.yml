@@ -2,6 +2,8 @@ name: Build LX04 preview variants
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*-preview*"
 permissions:

@@ -117,3 +117,9 @@ Set-Location 'D:\Codex\XiaoNexus\experiments\v50.2'
 在 D:\Codex 中安装 Node 时可运行 **node test_v50.js**，离线工具的历史记录为 **54/54**。部署时应重新运行并记录输出，不能把这次本地未执行的测试称为新版本 CI。历史 Go 客户端的独立构建和 Go 缓存应设置在 D:\Codex；不要将 legacy Go 构建成功当作新自动版构建成功。
 
 有关兼容性、误拦截、对话隐私与公开发布边界，参见 [安全声明](SECURITY.md) 与 [验证数据](VALIDATION.md)。
+
+## 9. Release 构建选择：标准与可视门铃版
+
+GitHub Actions 允许生成两份不同二进制资产：**Standard** 不编入门铃检测，**Doorbell** 保留原版 250ms 门铃状态检测、抢占取消和恢复保护。普通用户一律选择 Standard；只有本机确实提供可视门铃接收器时才使用 Doorbell。
+
+**不要把这两个 legacy-agent 预览包当成能自动运行 v50.2 的成品。** 它们目前仍基于旧关键词路由和旧 AudioGate；实机已经验证的是 experiments/v50.2 的人工授权门控。完整编译、版本选择、安全边界及 D 盘构建见 [双版本构建](BUILD_VARIANTS.md)。
