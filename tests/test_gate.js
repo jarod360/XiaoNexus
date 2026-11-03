@@ -61,7 +61,8 @@ function setup() {
   };
   const rpc = {exports:{}};
   const messages = [];
-  const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast:obj=>obj,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>messages.push(m),Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
+  const controlMessages = [];
+  const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast:obj=>obj,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
   const id = ch => ch.repeat(32);
   function event(name, dialog){return invoke(reg,{}, {getFullName:()=>name,getId:()=>dialog});}
@@ -79,7 +80,7 @@ function setup() {
   function otherCard(text){return invoke(card,cardObject,text)}
   function status(){return rpc.exports.status()}
   function advance(ms){now+=ms;for(const [id,t] of [...timers]){if(t.due<=now){timers.delete(id);t.fn()}}}
-  return {id,event,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,rpc,messages,counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
+  return {id,event,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,rpc,messages,controlMessages,counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
 }
 const REF='这可把我难住了，看来要更努力学习了';
 function orig(t,id,text){t.event('SpeechRecognizer.Recognize',id);t.event('System.Ack',id);t.speakEvent(id,text)}
@@ -300,7 +301,7 @@ test('a pre-ARM Recognize in the same millisecond is not a fresh Toast target',(
   assert.equal(t.status().uiCounters.uiEarlyMarkers,0);
   assert(t.status().armed);
 });
-console.log('RESULT', passed + ' tests PASS');
+
 
 
 test('target arm rejects absent and malformed request ids',()=>{
@@ -354,3 +355,25 @@ test('independent Synthesize never signals host route',()=>{
  t.write(p,Uint8Array.of(1));t.end(p);
  assert.equal(t.messages.length,0);
 });
+
+test('official frida-inject stdin can arm exact ASR dialog',()=>{
+ const t=setup(),id=t.id('a');
+ t.event('SpeechRecognizer.Recognize',id);
+ t.rpc.exports.onFridaStdin('ARM '+id+'\n');
+ assert.equal(t.status().targetArmed,true);
+ assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_ARM:'+id+':1\n'));
+});
+test('injector stdin rejects malformed commands and unknown ids',()=>{
+ const t=setup(),id=t.id('b');
+ t.rpc.exports.onFridaStdin('ARM wrong\n');
+ assert.equal(t.status().armed,false);
+ t.rpc.exports.onFridaStdin('ARM '+id+'\n');
+ assert.equal(t.status().armed,false);
+ assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_ARM:'+id+':0\n'));
+});
+test('injector announces readiness only after all hooks load',()=>{
+ const t=setup();
+ assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_READY\n'));
+ assert.equal(t.status().ready,true);
+});
+console.log('RESULT', passed + ' tests PASS');
