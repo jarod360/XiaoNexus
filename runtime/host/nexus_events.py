@@ -86,7 +86,7 @@ class SessionRouter:
         self.queries = OrderedDict()
         self.last_dialog = None
         self.last_native = None
-        self.sent = set()
+        self.sent = OrderedDict()
 
     def feed(self, inst: Instruction):
         now = self.clock()
@@ -122,5 +122,7 @@ class SessionRouter:
         query, created, expand = info
         if self.clock() - created > 12 or expand:
             return []
-        self.sent.add(dialog_id)
+        self.sent[dialog_id] = self.clock()
+        while len(self.sent) > 64:
+            self.sent.popitem(last=False)
         return [{'action': 'refusal', 'dialog_id': dialog_id, 'query': query}]
