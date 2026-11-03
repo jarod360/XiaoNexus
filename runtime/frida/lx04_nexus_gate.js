@@ -282,7 +282,20 @@
     note('ARM_TARGET_DIALOG_' + wanted.slice(0,6));
     return true;
   }
+  // The official Frida 16.6.6 Android ARM frida-inject -i CLI can
+  // deliver one line at a time to this exported RPC handler. The parent
+  // native supervisor runs on the speaker; no Windows host is required.
+  function emitHostLine(line) {
+    send(['frida:stdout', line + '\n']);
+  }
   rpc.exports = {
+    onFridaStdin: function (input) {
+      var m = /^ARM ([a-fA-F0-9]{32})\s*$/.exec(String(input));
+      if (!m) return;
+      var id = m[1].toLowerCase();
+      var accepted = armDialog(id);
+      emitHostLine('XIAONEXUS_ARM:' + id + ':' + (accepted ? '1' : '0'));
+    },
     armdialog: function (id) { return armDialog(id); },
     armone: function () { return armOne(false, false); },
     armboth: function () { return armOne(true, false); },
@@ -653,6 +666,7 @@
 
       ready = true;
       note('READY_V50_2_PASS_ALL hooks=' + installed.length);
+      emitHostLine('XIAONEXUS_READY');
     } catch (ex) {
       for (var n = installed.length - 1; n >= 0; --n) {
         try { installed[n].implementation = null; } catch (_) {}
