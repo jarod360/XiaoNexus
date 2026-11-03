@@ -79,3 +79,16 @@
 **不要上传：** MicoLauncher.apk、MIoT/Mi 账号密码、ServiceToken、ssecurity、API Key、/data/adb 私有配置、对话日志、设备备份、Frida-server 二进制。
 
 本项目与小米、DeepSeek 均无官方关联。
+
+## 可视门铃守护：保留，但不强制依赖
+
+个人使用的可视门铃守护逻辑源自旧 XiaoSeek 实装，属于**可选附加功能**，不是通用 DeepSeek 接管能力。新项目将它明确拆成两种独立的 **legacy-agent 预览构建**：
+
+| 构建 | 适合用户 | 可视门铃守护 |
+| --- | --- | --- |
+| **Standard** / XiaoNexus-legacy-LX04-standard-armv7 | 普通 LX04 用户 | **不编入**，不请求本机门铃服务 |
+| **Doorbell** / XiaoNexus-legacy-LX04-doorbell-armv7 | 已部署可视门铃接收器的个人环境 | **保留原守护**，含门铃抢占、取消 AI、恢复保护 |
+
+两种产物基于相同固定版本的旧认证和 DeepSeek 客户端。构建时只在 **.build/** 下复制、局部修改源码，不更改 legacy/XiaoSeek 的固定子模块，也不删除原作者门铃贡献。详细说明与 GitHub 预发布工作流见 [双版本构建与 Release](docs/BUILD_VARIANTS.md)。
+
+**发布边界：** 这两个名字带 legacy 的二进制仍沿用旧 ASR 关键词路由与 master-mute，**尚不是**完成新 v50.2 自动拒答接管的 XiaoNexus。仓库已直接收录实机成功的 [v50.2 实验源码](experiments/v50.2/README.md)，无需从本地另行导入才可审阅、执行离线测试；等待统一运行时整合和下一轮设备验证后再发布稳定版。

@@ -22,16 +22,18 @@ Set-Location 'D:\Codex\XiaoNexus'
 
 历史 XiaoSeek 固定于 legacy/XiaoSeek，**供审计与迁移代码复用，禁止与新门控同时以旧关键词分流模式自动启动。**
 
-## 2. 导入原样 v50.2 实验代码
+## 2. 验证仓库已固定的 v50.2 实验代码
 
-本阶段实测的完整 Frida 实验有五个源文件：lx04_v50_gate.js、attach_lab.py、test_v50.js、README.md、LX04_v50_2_Audit.md。若本仓库 experiments/v50.2 已保留它们，则直接使用；否则，从你本机此前解压到 D:\Codex\XiaoSeek-apk\v50_2 的已确认快照导入：
+本仓库现在**直接包含**实机已验证的 lx04_v50_gate.js、attach_lab.py、test_v50.js 及原始说明和审计记录，不再需要使用旧脚本从 D:\Codex\XiaoSeek-apk\v50_2 手动导入。原始脚本未作功能修改。首次使用前在 D 盘核对：
 
 ~~~powershell
-Set-Location 'D:\Codex\XiaoNexus'
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\scripts\import-local-v50.2.ps1'
+Set-Location 'D:\Codex\XiaoNexus\experiments\v50.2'
+Get-FileHash .\lx04_v50_gate.js,.\attach_lab.py,.\test_v50.js -Algorithm SHA256
+node --check .\lx04_v50_gate.js
+node .\test_v50.js
 ~~~
 
-导入脚本只在 **D:\Codex\XiaoNexus\experiments\v50.2** 创建文件；不触碰 C、不改音箱、不上传任何密钥。此目录的三个脚本必须与此前实机成功的版本字节一致，切勿在迁移时顺便重写 PCM Hook。
+三个 SHA256 见 experiments/v50.2/README.md；离线测试应显示 RESULT 54 tests PASS。若哈希不符合，不进行实机门控。不要为了更新而覆盖正在运行的设备 Agent。
 
 ## 3. 准备连接
 

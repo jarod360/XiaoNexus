@@ -28,3 +28,7 @@ venv/
 dist/
 build/
 .DS_Store
+
+# isolated, reproducible legacy build workspace
+.build/
+dist/
