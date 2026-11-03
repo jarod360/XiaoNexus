@@ -3,6 +3,7 @@ package main
 import (
  "encoding/json"
  "fmt"
+ "path/filepath"
  "strings"
  "testing"
  "time"
@@ -84,4 +85,13 @@ func TestNonKnowledgeCannotExpand(t *testing.T) {
  calc:=makeLog("Template","General",a,map[string]interface{}{"text":"1+99×2=199","skill_icon":map[string]string{"description":"计算器"}})
  if inst,ok:=parseOEM(calc);ok {r.feed(inst);t.Fatal("calculator must not pass parser")}
  if x:=r.feed(instruction{"asr",b,"让DeepSeek完善下小爱同学上轮的回答"});x.kind!="expand_unavailable" {t.Fatal(x)}
+}
+
+func TestSupervisorSingletonLock(t *testing.T){
+ path:=filepath.Join(t.TempDir(),"supervisor.lock")
+ a,e:=singleton(path);if e!=nil{t.Fatal(e)}
+ if b,e:=singleton(path);e==nil{b.Close();a.Close();t.Fatal("second supervisor was admitted")}
+ a.Close()
+ c,e:=singleton(path);if e!=nil{t.Fatal("kernel lock not released after close",e)}
+ c.Close()
 }

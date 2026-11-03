@@ -17,6 +17,7 @@ import (
  "os"
  "os/exec"
  "os/signal"
+ "path/filepath"
  "regexp"
  "strconv"
  "strings"
@@ -249,6 +250,15 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   }
  }
 }
+func singleton(path string)(*os.File,error){
+ lock,err:=os.OpenFile(path,os.O_CREATE|os.O_RDWR,0600)
+ if err!=nil{return nil,err}
+ if err=syscall.Flock(int(lock.Fd()),syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{
+  lock.Close()
+  return nil,fmt.Errorf("another XiaoNexus supervisor already owns the lock: %w",err)
+ }
+ return lock,nil
+}
 func main(){
  var injector=flag.String("injector","/data/adb/xiaonexus/frida-inject","official Frida 16.6.6 Android ARM binary")
  var script=flag.String("script","/data/adb/xiaonexus/lx04_nexus_gate.js","pinned XiaoNexus JavaScript")
@@ -258,6 +268,10 @@ func main(){
  data,err:=os.ReadFile(*tokenPath)
  if err!=nil{log.Fatal("receiver token absent; fail-open")}
  secret:=strings.TrimSpace(string(data))
+ // Kernel flock is released automatically even after a crash, avoiding stale PID locks.
+ guard,lockErr:=singleton(filepath.Join(filepath.Dir(*tokenPath),"supervisor.lock"))
+ if lockErr!=nil{log.Fatal("singleton supervisor: ",lockErr)}
+ defer guard.Close()
  if len(secret)!=64{log.Fatal("invalid receiver token")}
  for _,ch:=range secret{if !strings.ContainsRune("0123456789abcdef",ch){log.Fatal("invalid receiver token")}}
  if _,err=os.Stat(*script);err!=nil{log.Fatal("Frida script unavailable")}

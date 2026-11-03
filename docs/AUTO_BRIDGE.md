@@ -89,3 +89,8 @@ The frida-inject executable is deliberately NOT redistributed. Fetch the exact a
 7. Test OEM process restart, logcat EOF and receiver failure. Stop the supervisor and confirm all hooks unload. Restore old XiaoSeek service, if the candidate fails.
 
 These are safe commissioning instructions, not a claim of completed installation, automatic boot, or stable operation. No remote update modifies the speaker. All Windows tools, artifacts and temporary files should reside under D:\\Codex.
+
+
+### Supervisor singleton
+
+A device-local kernel flock protects the private /data/adb/xiaonexus/supervisor.lock file. The second attempted supervisor exits without attaching a second hook; after normal or abnormal process termination the kernel releases the lock. This guard applies to the new supervisor only, not to an unrelated old XiaoSeek process, so do not start both services concurrently.
