@@ -16,9 +16,11 @@ import (
  "net/http"
  "os"
  "os/exec"
+ "os/signal"
  "regexp"
  "strconv"
  "strings"
+ "syscall"
  "time"
 )
 
