@@ -1,0 +1,3 @@
+[submodule "legacy/XiaoSeek"]
+	path = legacy/XiaoSeek
+	url = https://github.com/jarod360/xiaoai-deepseek-lx04.git
