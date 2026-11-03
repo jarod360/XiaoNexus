@@ -36,9 +36,13 @@ GitHub Actions 的 Build LX04 preview variants 允许手动触发。它先检查
 ~~~powershell
 Set-Location 'D:\Codex\XiaoNexus'
 git submodule update --init --recursive
+New-Item -ItemType Directory -Force 'D:\Codex\XiaoNexus\dist', 'D:\Codex\go\cache', 'D:\Codex\tmp' | Out-Null
 $env:GOPATH = 'D:\Codex\go'
 $env:GOMODCACHE = 'D:\Codex\go\pkg\mod'
 $env:GOCACHE = 'D:\Codex\go\cache'
+$env:TEMP = 'D:\Codex\tmp'
+$env:TMP = 'D:\Codex\tmp'
+$env:TMPDIR = 'D:\Codex\tmp'
 $env:GOTOOLCHAIN = 'local'
 python .\scripts\prepare-legacy-variants.py
 Set-Location '.\.build\legacy-agent-src\client'
