@@ -20,7 +20,7 @@ func TestParseFinalASRAndKnowledge(t *testing.T){
    map[string]interface{}{"is_final":true,"results":[]interface{}{map[string]string{"text":" 什么是黑洞 "}}})
  i,ok:=parseOEM(l);if !ok||i.kind!="asr"||i.text!="什么是黑洞"||i.id!=id{t.Fatal("final ASR parse",i)}
  p:=makeLog("SpeechRecognizer","RecognizeResult",id,
-   map[string]interface{}{"is_final":false,"results":[]interface{}{map[string]string{"text":"黑洞"}})
+   map[string]interface{}{"is_final":false,"results":[]interface{}{map[string]string{"text":"黑洞"}}})
  if _,ok:=parseOEM(p);ok{t.Fatal("partial ASR must not arm")}
  k:=makeLog("Template","General",id,map[string]interface{}{"text":"黑洞是时空区域","skill_icon":map[string]string{"description":"智能问答"}})
  if i,ok:=parseOEM(k);!ok||i.kind!="knowledge"{t.Fatal("knowledge",i)}
