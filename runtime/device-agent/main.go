@@ -99,7 +99,15 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  if !s.authorized(r) { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
  if r.URL.Path == "/v1/health" && r.Method == http.MethodGet {
   w.Header().Set("Content-Type", "application/json")
-  io.WriteString(w, `{"ready":true,"mode":"on-device-answer-only","no_global_mute":true}`)
+  // The host must not arm refusal PCM if the personal doorbell receiver
+  // would reject the follow-up DeepSeek request.
+  ready := s.model != nil && s.box != nil &&
+    (s.doorbell == nil || !s.doorbell.check(r.Context()))
+  if ready {
+    io.WriteString(w, `{"ready":true,"mode":"on-device-answer-only","no_global_mute":true}`)
+  } else {
+    io.WriteString(w, `{"ready":false,"mode":"doorbell-blocked-or-unavailable","no_global_mute":true}`)
+  }
   return
  }
  if r.URL.Path != "/v1/query" || r.Method != http.MethodPost { http.NotFound(w, r); return }
