@@ -1,0 +1,28 @@
+XiaoNexus / 小爱智枢
+Copyright 2026 contributors.
+
+This project is derived from and inspired by XiaoSeek LX04 /
+jarod360/xiaoai-deepseek-lx04.
+Copyright 2026 Goldloli and contributors.
+
+Original XiaoSeek source:
+https://github.com/jarod360/xiaoai-deepseek-lx04
+Pinned source revision: 5c05b9ad090f21265a440160345ed54d95e24783
+
+Upstream axcom/xiaobot:
+https://github.com/axcom/xiaobot
+Pinned upstream revision: 7c98861a48437fcb74ea6483ff365b1e63d7ab1c
+
+axcom/ninego:
+https://github.com/axcom/ninego
+Pinned revision: a4c59c1576bd1eb6c5d80684ad25abd103cf6331
+
+MiService: Copyright (c) 2021-2022 Long Bai (MIT).
+
+The legacy submodule retains all original LICENSE, NOTICE, THIRD_PARTY
+and source license headers. Apache-2.0 applies to original portions of
+this repository unless individually marked otherwise; upstream MIT, GPL
+and proprietary material remain under their respective terms.
+
+Xiaomi, XiaoAI, DeepSeek, Android and Frida are owned by their respective
+owners. This is an independent community project, not an official product.
