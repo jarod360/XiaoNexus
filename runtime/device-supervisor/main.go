@@ -68,7 +68,7 @@ func parseOEM(line string) (instruction, bool) {
  text=strings.TrimSpace(text)
  return instruction{kind,id,text},text!=""
 }
-type dialog struct {query string; at time.Time; expand bool; routed bool}
+type dialog struct {query string; at time.Time; expand bool; routed bool; nativeQuery string; nativeAnswer string}
 type knowledge struct {dialogID,query,answer string; at time.Time}
 type action struct{ kind,id,query,answer string }
 type router struct {
@@ -95,7 +95,9 @@ func (r *router) feed(i instruction) action {
   if expand {
    p:=r.previous
    if p!=nil && p.dialogID==last && now.Sub(p.at)>=0 && now.Sub(p.at)<=5*time.Minute {
-    return action{kind:"expand",id:i.id,query:p.query,answer:p.answer}
+    d:=r.dialogs[i.id];d.nativeQuery=p.query;d.nativeAnswer=p.answer
+    // Do not submit DeepSeek yet: the OEM reply must first be gated.
+    return action{kind:"arm_expand",id:i.id}
    }
    return action{kind:"expand_unavailable",id:i.id}
   }
@@ -109,8 +111,10 @@ func (r *router) feed(i instruction) action {
 }
 func (r *router) gate(id string)action {
  d:=r.dialogs[id]
- if d==nil||d.routed||d.expand||r.clock().Sub(d.at)>12*time.Second{return action{}}
+ if d==nil||d.routed||r.clock().Sub(d.at)>12*time.Second{return action{}}
+ if d.expand && (d.nativeQuery=="" || d.nativeAnswer==""){return action{}}
  d.routed=true
+ if d.expand{return action{kind:"expand",id:id,query:d.nativeQuery,answer:d.nativeAnswer}}
  return action{kind:"refusal",id:id,query:d.query}
 }
 
@@ -227,22 +231,18 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     if strings.Contains(ev.value,`"type":"error"`){return errors.New("Frida JavaScript exception")}
     if id,ok:=parseGate(ev.value);ok{
      if !enable || !c.healthy(){return errors.New("gate accepted but receiver not ready")}
-     if a:=r.gate(id);a.kind=="refusal" && !c.submit(a){
+     if a:=r.gate(id);(a.kind=="refusal"||a.kind=="expand") && !c.submit(a){
       return errors.New("accepted PCM gate but DeepSeek request failed")
      }
     }
    } else if ev.kind=="oem" {
     a:=r.feed(ev.inst)
     if a.kind==""||!ready||!enable{continue}
-    if a.kind=="arm" || a.kind=="expand"{
+    if a.kind=="arm" || a.kind=="arm_expand"{
      if !c.healthy(){continue}
-     _,_ = io.WriteString(stdin,"ARM "+a.id+"\n")
-    }
-    if a.kind=="expand"{
-     if !c.healthy(){continue}
-     // User explicitly asked to re-answer the immediate last OEM
-     // knowledge question. No automatic handoff for normal answers.
-     if !c.submit(a){log.Print("previous-answer expansion was not accepted")}
+     command:="ARM "
+     if a.kind=="arm_expand"{command="ARMEXP "}
+     _,_ = io.WriteString(stdin,command+a.id+"\n")
     }
     if a.kind=="expand_unavailable"{log.Print("no immediately preceding OEM knowledge answer")}
    }
