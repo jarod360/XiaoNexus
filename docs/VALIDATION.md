@@ -55,3 +55,7 @@
 - 独立 DeepSeek TTS 与全屏滚动完整，不再使用 BACK；
 - 新会话、长回复、并发播放、异常 EOF、网络失败、旧代码停用及回滚；
 - 日志脱敏、Key/Token 不泄漏、对话不保存到公开仓库。
+
+## v52 offline scope
+
+The historical OEM samples demonstrate that Template.General can represent both knowledge (skill_icon.description=智能问答) and calculator (skill_icon.description=计算器). Go and Python routers now guard this field and reject unknown categories. The official frida/frida 16.6.6 inject.vala source documents stdin/onFridaStdin and stdout message support; no LX04 execution of the autonomous on-device injector has yet been recorded. Two candidate Release archives include an ARMv7 supervisor; these are not certified one-click replacements for XiaoSeek.

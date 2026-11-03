@@ -69,3 +69,22 @@ $device = '<你的 ADB 设备序列>'
 ## 仍然未完成的关键能力
 
 Frida-server 常驻**不会**自动加载 Hook。官方 Frida Gadget 的 script 模式必须先加载 Gadget 到 OEM 进程；直接改签原厂 APK 或无验证的 Magisk 注入在 LX04 上风险较高。**目前没有设备端完全自主加载 Frida 16.6.6 并在 OEM 重启后安全重附加的已验证方案**，因此 v51 是 Windows/ADB host-assisted 自动接管预览，不是可拆电脑、可卸旧版的稳定发行版。另需验证 OEM 日志实时性、日志轮转、并发、长 TTS、故障时静默风险。
+
+
+## v52: on-device supervisor packaged, real-device verification pending
+
+This source tree now bundles the ARMv7 xiaonexus-supervisor binary together with the selected Standard/Doorbell answer receiver and the tested candidate Frida JS. The device-side supervisor uses the official Frida 16.6.6 android-arm frida-inject command, passes ARM dialogId through the documented interactive stdin RPC, and listens for gate_accepted from the injected script. This is a verified tool API contract, **not yet an observed result on the LX04**.
+
+The frida-inject executable is deliberately NOT redistributed. Fetch the exact asset frida-inject-16.6.6-android-arm.xz from the official frida/frida GitHub release and independently verify its architecture and version before placing it on the device; never substitute linux-armhf, arm64, or Frida 17. The stock APK is not modified.
+
+### Safe first-device stages
+
+1. Keep the old XiaoSeek binary, config, tokens, supervisor scripts and a known-good recovery path. Never uninstall the old app before the new one passes this acceptance.
+2. Stage candidate files in a distinct private /data/adb/xiaonexus directory. Keep the XiaoSeek service stopped only during a controlled testing window; do not run both answer agents or both auto-supervisors together.
+3. Start the new answer receiver and validate authenticated loopback health. Check frida-inject --version is 16.6.6 and validate the OEM main process, excluding :miot.
+4. Run the new supervisor WITHOUT --enable (OBSERVE_ONLY), verify original audio, controls, music, wakeup and screen behavior, and check no OEM ANR or crashes.
+5. Only after explicit approval, run one controlled --enable refusal case; verify PCM gate, EOF, wait text, independent DeepSeek audio, full-screen scroll and fail-open on errors. Stop on any anomalous behavior.
+6. Test optional “ask DeepSeek to expand last answer” only after a real Template.General with skill_icon.description=智能问答; calculator, device controls and unrelated conversations must be rejected. The original assistant reply to this explicit command may still overlap DeepSeek audio; this requires live validation before acceptance.
+7. Test OEM process restart, logcat EOF and receiver failure. Stop the supervisor and confirm all hooks unload. Restore old XiaoSeek service, if the candidate fails.
+
+These are safe commissioning instructions, not a claim of completed installation, automatic boot, or stable operation. No remote update modifies the speaker. All Windows tools, artifacts and temporary files should reside under D:\\Codex.

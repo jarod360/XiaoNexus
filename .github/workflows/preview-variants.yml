@@ -35,7 +35,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_nexus_events.py' -v
           python3 -m py_compile runtime/host/controller.py runtime/host/nexus_events.py
-      - name: Compile independent Standard and Doorbell ARMv7 Agents
+      - name: Compile Standard and Doorbell agents plus ARMv7 supervisor
         run: sh scripts/build-variants.sh
       - name: Upload two separate bridge previews
         uses: actions/upload-artifact@v4
@@ -51,10 +51,12 @@ jobs:
         with:
           prerelease: true
           body: |
-            Host-assisted XiaoNexus bridge experiment only. Requires Frida 16.6.6
-            and a Windows/ADB host. This release is not an unattended speaker
-            installation. Standard excludes doorbell; Doorbell retains the
-            pinned legacy guard. Do not uninstall a working prior Agent.
+            Experimental XiaoNexus ARMv7 bundle: answer agent, native supervisor and Frida JS.
+            Requires separate official frida-inject 16.6.6 android-arm binary.
+            On-device autonomous attach/restarts and safety still await LX04 verification.
+            Supervisor defaults to OBSERVE_ONLY; --enable is deliberate and not automatic.
+            Standard excludes doorbell; Doorbell retains the original personal guard.
+            Do not uninstall a working XiaoSeek until real-device acceptance.
           files: |
             dist/XiaoNexus-LX04-bridge-standard-armv7.tar.gz
             dist/XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz

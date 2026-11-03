@@ -108,3 +108,10 @@
 **两个新 ARMv7 预览版本**：XiaoNexus-LX04-bridge-standard-armv7（无门铃）与 XiaoNexus-LX04-bridge-doorbell-armv7（保留旧版可视门铃抢占/取消/保护）。两者独立编译，不再是旧关键词路由 Agent。
 
 本次 CI 已完成新增 v51 Hook、OEM 会话逻辑的离线测试及两种新 Agent 的 ARMv7 编译。**尚无 v51 实机验收，主机桥接运行时仍需电脑常在线，尚未实现设备端 Frida 自动加载**。因此旧 XiaoSeek 暂时**不要卸载**。完整说明与回滚计划见 [自动化桥接说明](docs/AUTO_BRIDGE.md)。
+
+
+## v52 preview: autonomous supervisor packaging (not yet accepted on hardware)
+
+The two ARMv7 candidate archives now each contain the new answer receiver, a separate xiaonexus-supervisor ARMv7 executable, the Frida gate JavaScript and SHA256SUMS. Supervisor startup defaults to OBSERVE_ONLY; it cannot modify PCM unless --enable is explicitly selected. The matching official frida-inject 16.6.6 android-arm binary is intentionally not bundled.
+
+Last-answer expansion accepts only the immediately preceding OEM Template.General with skill_icon.description=智能问答. OEM calculators also emit Template.General and are deliberately excluded. Real-device validation of native TTS overlap for the explicit expansion command is still pending. Do not uninstall the old working XiaoSeek until acceptance of auto-attach, detach, refusal routing, last-answer context, doorbell and recovery. See docs/AUTO_BRIDGE.md.
