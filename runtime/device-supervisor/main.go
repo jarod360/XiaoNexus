@@ -192,18 +192,13 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  stdin,err:=inject.StdinPipe();if err!=nil{return err}
  inject.Stderr=io.Discard // never store potentially sensitive OEM output
  if err:=inject.Start();err!=nil{return err}
+ // Any later logcat/pipe failure must also detach the injector.
+ defer func(){cancel();_ = stdin.Close();_ = inject.Process.Kill();_ = inject.Wait()}()
  logcat:=exec.CommandContext(ctx,"/system/bin/logcat","-v","raw","-T","1","MICO.cap:I","*:S")
  logOut,err:=logcat.StdoutPipe();if err!=nil{return err}
  logcat.Stderr=io.Discard
  if err:=logcat.Start();err!=nil{return err}
- defer func(){
-  cancel()
-  _=stdin.Close()
-  _=inject.Process.Kill()
-  _=logcat.Process.Kill()
-  _=inject.Wait()
-  _=logcat.Wait()
- }()
+ defer func(){_ = logcat.Process.Kill();_ = logcat.Wait()}()
  events:=make(chan event,256)
  go scanLines(ctx,stdout,events,"inject")
  go scanLines(ctx,logOut,events,"log")
