@@ -1,6 +1,6 @@
 # LX04 V51.4 常驻测试 + EFS 修复 + expand 诊断交接
 
-> 状态（2026-11-04 19:21）：**V51.4 曾启动过常驻测试；run13 更新后的 Agent 因 DNS 环境缺失而小米认证失败，用户已执行 -Disable，当前设备仅原厂小爱运行。** DHCP DNS 自动获取修复在 PR #4，等待 CI 和新候选包；禁止重新激活旧 run13 包。GitHub CI 与设备实测分开记录。
+> 状态（2026-11-04 19:21）：**V51.4 曾启动过常驻测试；run13 更新后的 Agent 因 DNS 环境缺失而小米认证失败，用户已执行 -Disable，当前设备仅原厂小爱运行。** DHCP DNS 自动获取修复已通过 PR #4 合并到 main，CI run #18 通过并生成新候选包；设备尚未部署，禁止重新激活旧 run13 包。GitHub CI 与设备实测分开记录。
 
 ## 已完成的实机验收（最新记录）
 
@@ -74,9 +74,9 @@ Android 网络自身正常：Wi-Fi 为 CONNECTED / VALIDATED；系统属性 net.
 
 旧版 client/runtimeenv/dns.go 的 ConfigureDNSFromEnv() 只在 XIAOBOT_DNS_SERVER 非空时替 Go resolver 指定 DNS；为空时返回 nil。旧版 scripts/device-run.sh 会读取 Android net.dns1 并设置 XIAOBOT_DNS_SERVER；V51.4 resident.sh 漏掉此初始化，导致 Go resolver 落到 [::1]:53。不是 DHCP 没下发 DNS，也不是应把网关 IP 写死。
 
-### PR #4 的代码修复
+### PR #4 已合并到 main（CI 通过，设备待部署）
 
-- PR：https://github.com/jarod360/XiaoNexus/pull/4（同一 PR 包含安装器 manifest 换行修复）。
+- PR：https://github.com/jarod360/XiaoNexus/pull/4，已 squash merge；merge commit：`eec5ff7ffd0d23bd7c41b89cef1ac5d15a12db9c`。同一 PR 包含安装器 manifest 换行修复。
 - resident.sh 在启动 Agent 前顺序读取 net.dns1…net.dns4，自动选择第一个有效、非 loopback 的 IP；IPv4 使用 IP:53，IPv6 使用 [IP]:53。
 - 最多等待 120 秒等待 Android Wi-Fi/DHCP DNS 属性就绪；就绪记录 ANDROID_DNS_READY，再启动 Agent；超时记录 ANDROID_DNS_UNAVAILABLE_RETRY_LATER，不启动 Agent，也不触发无效的小米登录循环。
 - 不写死 192.168.0.254，不把默认网关假定为 DNS，不修改 Android 全局 DNS；不改 Agent 二进制、EFS 或 Doorbell Guard。
@@ -86,10 +86,10 @@ Android 网络自身正常：Wi-Fi 为 CONNECTED / VALIDATED；系统属性 net.
 
 - 用户已运行 -Disable；最新 ps 仅有 OEM PID 4119 和 MIOT PID 4155，没有 Agent / Supervisor / Frida。
 - 原厂小爱保持可用；EFS 一次性 flags 处理已在 19:14 完成。门铃守护没有被此次 DNS 诊断修改。
-- 等 PR #4 CI 通过，下载该次新构建的完整 candidate artifact。不要重新激活旧 run13 包。
+- GitHub Actions run #18 已通过：`https://github.com/jarod360/XiaoNexus/actions/runs/41822240315`。下载完整 artifact `XiaoNexus-V51.4-resident-candidate`（ID `13317975886`，ZIP SHA256 `4f495e960999b94a8787d0adfd23d92ded4f9ccb4b6cc4402f209db866d71fdc`）。不要重新激活旧 run13 包。
 - 新包部署后，先检查 resident-status.log 出现 ANDROID_DNS_READY → AGENT_LAUNCH_REQUESTED；agent-last.log 不再出现 [::1]:53；随后验证 Agent PID、18765 监听与 Supervisor READY_PASS_ALL，再进行语音/门铃验收。
 
-**DNS 修复当前仅完成源码提交，尚未 CI/实机验证；不得标记为已解决。**
+**DNS 修复已合并且 CI 构建通过，但尚未实机部署/验证；不得标记为已解决。**
 
 ## 部署步骤（门铃健康协议修复；Windows 仅使用 D:\Codex）
 
