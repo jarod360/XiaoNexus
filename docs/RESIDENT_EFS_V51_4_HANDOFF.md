@@ -2,13 +2,13 @@
 
 > 状态（2026-11-04 19:21）：**V51.4 曾启动过常驻测试；run13 更新后的 Agent 因 DNS 环境缺失而小米认证失败，用户已执行 -Disable，当前设备仅原厂小爱运行。** DHCP DNS 自动获取修复已通过 PR #4 合并到 main，CI run #18 通过并生成新候选包；设备尚未部署，禁止重新激活旧 run13 包。GitHub CI 与设备实测分开记录。
 
-## 已完成的实机验收（最新记录）
+## 此前实机验收记录（16:55 成功轮次；非当前状态）
 
 - **此前部署**：候选包 SHA256 通过，备份 `resident-pre-20261104-165351` 和 `resident-pre-20261104-165503`，设备文件上传成功；首次 `-Activate` 曾正常进入 `READY_PASS_ALL`。后续 run13 包再次激活时 Agent DNS 初始化失败，详见本文末尾新增 DNS 事件记录。
 - **此前启动链路**：`16:55:16 RESIDENT_START / EFS_ONCE_START` → `16:55:27 EFS_FLAGS_CONFIRMED / VOICE_SUPERVISOR_START` → `08:55:31 READY_PASS_ALL`（Supervisor 日志使用 UTC 时间显示）。这只是较早一轮成功记录；最新 19:14 启动失败后，19:21 已执行 `-Disable`，当前不再有 XiaoNexus/Frida 进程。
 - **拒答**：Supervisor 后续有五次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`；只是授权确认，并非每次 DeepSeek 已成功播报的直接证据。
 - **旧版退役**：按用户要求，已执行旧版定点备份和删除，回执 `LEGACY_SCOPED_RETIREMENT_COMPLETE`；备份文件 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`，SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`。原来要求“旧版本始终保留”的条款现为历史说明。
-- **边界**：现有 Doorbell Agent 未替换、门铃保护源码未修改；真实按铃抢占、三端弹窗、EFS 常驻后独立性能复测、OEM 重附加、整机冷重启、expand 偶发漏拦截仍需验证。
+- **边界**：run13 已替换 Agent 二进制，但该版本因 DNS 初始化失败未成功启动；Doorbell Guard 实现本身未修改。真实按铃抢占、三端弹窗、EFS 常驻后独立性能复测、OEM 重附加、整机冷重启、expand 偶发漏拦截仍需验证。
 
 
 
@@ -95,7 +95,7 @@ Android 网络自身正常：Wi-Fi 为 CONNECTED / VALIDATED；系统属性 net.
 
 > **注意：旧 V51.4 安装脚本不会部署 Agent。** 本次新 Supervisor 要求 Agent 的 `/v1/health` 返回 `healthy`，所以必须使用包含 Agent 一并备份/暂存的新版 `Install_Resident_LX04.ps1`。不要使用旧候选包或从不同 Actions run 拼装文件。
 
-1. 从最新成功的 **V51.4 resident candidate validation** GitHub Actions run 下载整个 `XiaoNexus-V51.4-resident-candidate` artifact。artifact 内部包含 Doorbell / Standard 两个 tar.gz 和外层 `SHA256SUMS`。只使用 **Doorbell** 包。
+1. 从 Actions run #18 下载整个 `XiaoNexus-V51.4-resident-candidate` artifact（ID `13317975886`，ZIP SHA256 `4f495e960999b94a8787d0adfd23d92ded4f9ccb4b6cc4402f209db866d71fdc`）：https://github.com/jarod360/XiaoNexus/actions/runs/41822240315。artifact 内部包含 Doorbell / Standard 两个 tar.gz 和外层 `SHA256SUMS`。只使用 **Doorbell** 包。
 2. 在 D 盘解压。示例：
    ```powershell
    $root = "D:\Codex\XiaoNexus\V51.4\doorbell"
