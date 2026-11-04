@@ -28,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('scripts/Install_Resident_LX04.ps1')) {
+          foreach ($file in @('scripts/Install_Resident_LX04.ps1','scripts/Retire_Legacy_LX04.ps1')) {
             $tokens = $null
             $parseErrors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors) | Out-Null
