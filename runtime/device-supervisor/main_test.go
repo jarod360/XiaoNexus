@@ -186,3 +186,29 @@ func TestReceiverHealthContractRequiresExplicitLiveness(t *testing.T) {
   t.Fatal("legacy health response must not pass liveness validation")
  }
 }
+
+func TestOEMSelectionRejectsForkChildren(t *testing.T) {
+ ps:="USER PID PPID VSZ RSS WCHAN ADDR S NAME\nroot 386 1 0 0 x x S zygote\nu0_a28 1028 386 0 0 x x S com.xiaomi.micolauncher\nu0_a28 1486 1028 0 0 x x R com.xiaomi.micolauncher\n"
+ got,e:=parseOEMProcessList(ps)
+ if e!=nil||got!=1028{t.Fatal(got,e)}
+ if _,e=parseOEMProcessList("u0_a28 1486 1028 0 0 x x R com.xiaomi.micolauncher\n");e==nil{t.Fatal("child alone accepted")}
+}
+func TestOEMSelectionRejectsAmbiguousZygoteProcesses(t *testing.T) {
+ ps:="root 386 1 0 0 x x S zygote\nu0_a28 1028 386 0 0 x x S com.xiaomi.micolauncher\nu0_a28 1999 386 0 0 x x S com.xiaomi.micolauncher\n"
+ if _,e:=parseOEMProcessList(ps);e==nil{t.Fatal("ambiguous primary accepted")}
+}
+
+func TestObserved31CharacterDialogFlowsWithoutPadding(t *testing.T){
+ id:=strings.Repeat("a",31)
+ raw:=makeLog("SpeechRecognizer","RecognizeResult",id,map[string]interface{}{"is_final":true,"results":[]interface{}{map[string]string{"text":"test question"}}})
+ inst,ok:=parseOEM(raw);if !ok||inst.id!=id{t.Fatal("31-char final ASR discarded")}
+ r:=newRouter(time.Now);if a:=r.feed(inst);a.kind!="arm"||a.id!=id{t.Fatal("31-char arm missing")}
+ if got,accepted,ok:=parseArmResult("XIAONEXUS_ARM:"+id+":1");!ok||!accepted||got!=id{t.Fatal("31-char ARM ACK discarded")}
+ envelope:=`{"type":"send","payload":{"kind":"gate_accepted","dialog_id":"`+id+`"}}`
+ if got,ok:=parseGate(envelope);!ok||got!=id{t.Fatal("31-char gate discarded")}
+ if r.gate("0"+id).kind!=""{t.Fatal("padded ID aliased source")}
+ if a:=r.gate(id);a.kind!="refusal"||a.id!=id{t.Fatal("31-char submission missing")}
+}
+func TestDialogIDBoundsRemainStrict(t *testing.T){
+ for _,id:=range []string{strings.Repeat("a",30),strings.Repeat("a",33),strings.Repeat("g",31)}{if validID.MatchString(id){t.Fatal("invalid ID accepted")}}
+}

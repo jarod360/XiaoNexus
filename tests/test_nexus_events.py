@@ -132,5 +132,11 @@ class OEMRouterTest(unittest.TestCase):
         now[0] += 61
         self.assertEqual(later.feed(Instruction('asr', C, '补充下'))[0]['action'], 'arm')
 
+    def test_observed_31_char_dialog(self):
+        ident='a'*31
+        inst=parse_instruction(line('SpeechRecognizer.RecognizeResult',ident,{'is_final':True,'results':[{'text':'test'}]}))
+        self.assertIsNotNone(inst)
+        self.assertEqual(inst.dialog_id,ident)
+
 if __name__=='__main__':
     unittest.main()

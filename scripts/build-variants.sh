@@ -8,7 +8,7 @@ python3 "$ROOT/scripts/prepare-legacy-variants.py"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
 cd "$ROOT/.build/legacy-agent-src/client"
-go test ./cmd/xiaonexus-agent ./cmd/xiaonexus-supervisor
+go test ./cmd/xiaonexus-agent ./cmd/xiaonexus-supervisor ./miservice
 go test -tags doorbell ./cmd/xiaonexus-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-supervisor-armv7" ./cmd/xiaonexus-supervisor
 cp "$ROOT/runtime/frida/lx04_nexus_gate.js" "$OUT/lx04_nexus_gate.js"
@@ -29,7 +29,7 @@ for flavor in standard doorbell; do
   cp "$ROOT/runtime/device-resident/"*.sh "$ROOT/runtime/device-resident/"*.js "$PKG/resident/"
   cp "$ROOT/scripts/Install_Resident_LX04.ps1" "$PKG/Install_Resident_LX04.ps1"
   cp "$ROOT/scripts/Retire_Legacy_LX04.ps1" "$PKG/Retire_Legacy_LX04.ps1"
-  cp "$ROOT/docs/RESIDENT_EFS_V51_5_HANDOFF.md" "$PKG/HANDOFF.md"
+  cp "$ROOT/docs/RESIDENT_V51_6_0_RC_HANDOFF.md" "$PKG/HANDOFF.md"
   cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
   cp "$ROOT/scripts/Audit_Legacy_XiaoSeek.ps1" "$PKG/Audit_Legacy_XiaoSeek.ps1"
   printf '%s\n' "$VERSION" > "$PKG/VERSION"

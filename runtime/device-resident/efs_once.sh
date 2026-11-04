@@ -2,6 +2,16 @@
 # One-shot EFS recovery. Never runs alongside XiaoNexus's voice injector.
 # No APK changes, no global DNS/network hooks, no persistent EFS Java hook.
 base=/data/adb/xiaonexus
+oem_pid() {
+  parents="$(pidof zygote) $(pidof zygote64)"
+  for candidate in $(pidof com.xiaomi.micolauncher); do
+    parent=$(sed -n 's/^PPid:[[:space:]]*//p' /proc/"$candidate"/status 2>/dev/null)
+    for z in $parents; do
+      if [ "$parent" = "$z" ]; then echo "$candidate"; break; fi
+    done
+  done
+}
+
 injector=$base/frida/frida-inject
 script=$base/resident/efs_recover.js
 diag=$base/diag
@@ -13,7 +23,7 @@ if pidof frida-inject >/dev/null 2>&1 || pidof xiaonexus-supervisor >/dev/null 2
   echo EFS_INJECTOR_BUSY
   exit 4
 fi
-before=$(pidof com.xiaomi.micolauncher)
+before=$(oem_pid)
 case "$before" in ''|*[!0-9]*) echo EFS_OEM_PID_INVALID; exit 5;; esac
 mkdir -p "$diag" "$run" || exit 6
 chmod 700 "$diag" "$run"
@@ -36,7 +46,7 @@ kill -15 "$child" 2>/dev/null
 exec 3>&-
 wait "$child" 2>/dev/null
 child=
-after=$(pidof com.xiaomi.micolauncher)
+after=$(oem_pid)
 [ "$before" = "$after" ] || { echo EFS_OEM_PID_CHANGED; exit 8; }
 if grep -q XIAONEXUS_EFS_FLAGS_FALSE "$log"; then
   echo EFS_FLAGS_FALSE_PID_"$after"

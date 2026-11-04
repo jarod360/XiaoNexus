@@ -1,4 +1,4 @@
-name: V51.5 resident candidate validation
+name: V51.6.0-RC resident candidate validation
 on:
   pull_request:
     branches: [main]
@@ -24,6 +24,7 @@ jobs:
           node --check runtime/frida/lx04_nexus_gate.js
           node --check runtime/device-resident/efs_recover.js
           node tests/test_gate.js
+          node tests/test_native_wait.js
       - name: Shell and PowerShell syntax only
         shell: pwsh
         run: |
@@ -42,8 +43,8 @@ jobs:
         run: sh scripts/build-variants.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-V51.5-resident-candidate
+          name: XiaoNexus-V51.6.0-RC-resident-candidate
           path: |
-            dist/XiaoNexus-V51.5-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-V51.5-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V51.6.0-RC-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V51.6.0-RC-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS
