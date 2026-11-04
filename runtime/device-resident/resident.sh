@@ -69,8 +69,6 @@ while [ ! -e "$disabled" ]; do
     log EFS_ONCE_START
     if /system/bin/sh "$efs" >/dev/null 2>&1; then
       last_oem=$oem
-      failures=0
-      window_start=$(date +%s)
       log EFS_FLAGS_CONFIRMED
     else
       failures=$((failures+1))
