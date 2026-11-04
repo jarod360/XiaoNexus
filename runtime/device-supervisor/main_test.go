@@ -144,3 +144,45 @@ func TestArmDiagnosticEnvelope(t *testing.T){
   if _,ok:=parseArmReason(invalid);ok{t.Fatalf("leaked unexpected diagnostic: %q",invalid)}
  }
 }
+
+func TestDoorbellBlocksRoutingWithoutKillingReceiver(t *testing.T) {
+ active := receiverStatus{
+  Healthy: true, Ready: false, RoutingBlocked: true, NoGlobalMute: true,
+ }
+ if !active.alive() {
+  t.Fatal("doorbell priority must not make the answer receiver dead")
+ }
+ if active.routeReady() {
+  t.Fatal("DeepSeek routing must stay blocked while doorbell is active")
+ }
+ idle := receiverStatus{
+  Healthy: true, Ready: true, RoutingBlocked: false, NoGlobalMute: true,
+ }
+ if !idle.alive() || !idle.routeReady() {
+  t.Fatal("routing must resume when doorbell hold has ended")
+ }
+ unavailable := receiverStatus{
+  Healthy: false, Ready: false, RoutingBlocked: true, NoGlobalMute: true,
+ }
+ if unavailable.alive() || unavailable.routeReady() {
+  t.Fatal("a genuinely unavailable receiver must remain fail-open")
+ }
+}
+func TestReceiverHealthContractRequiresExplicitLiveness(t *testing.T) {
+ var status receiverStatus
+ if err := json.Unmarshal([]byte(`{"healthy":true,"ready":false,"routing_blocked":true,"no_global_mute":true}`), &status); err != nil {
+  t.Fatal(err)
+ }
+ if !status.alive() || status.routeReady() {
+  t.Fatal("doorbell blocked contract parsed incorrectly", status)
+ }
+ // Older aggregated health responses omit healthy; reject them safely rather
+ // than accidentally treating an old binary as the new liveness contract.
+ var legacy receiverStatus
+ if err := json.Unmarshal([]byte(`{"ready":true,"no_global_mute":true}`), &legacy); err != nil {
+  t.Fatal(err)
+ }
+ if legacy.alive() {
+  t.Fatal("legacy health response must not pass liveness validation")
+ }
+}

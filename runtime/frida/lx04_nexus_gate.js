@@ -16,6 +16,8 @@
   var ready = false;
   var armed = false;
   var gateDisabled = false;
+  // Fail open until the supervisor confirms the receiver and route are ready.
+  var routingBlocked = true;
   var pending = null;
   var armAt = 0;
   var armRecognizeCount = 0;
@@ -197,7 +199,7 @@
   function stopGate(reason) {
     var changed = false;
     owners.forEach(function (bucket) { bucket.forEach(function (ent) {
-      if (ent.gateActive) { ent.gateActive = false; changed = true; }
+      if (ent.gateActive) { ent.gateActive = false; ent.gateStopped = true; changed = true; }
     }); });
     pending = null; armed = false; clearUi();
     if (changed) note('GATE_STOP_' + reason);
@@ -252,7 +254,7 @@
   function armOne(withUI, withWait) {
       gateStats.armCalls++;
       expireArm();
-      if (!ready || gateDisabled || errors || armed || pending || countOwners() !== 0) return false;
+      if (routingBlocked || !ready || gateDisabled || errors || armed || pending || countOwners() !== 0) return false;
       armed = true; armedUI = !!withUI; armedUIMode = withWait ? 'wait' : 'hide'; armAt = Date.now(); armRecognizeCount = stats.recognizeEvents; gateStats.armAccepted++;
       uiEarlyId = null; targetedDialog = null; targetedMode = null;
       note(withWait ? 'ARM_WAIT_EIGHT_EXACT' : (withUI ? 'ARM_BOTH_EIGHT_EXACT' : 'ARM_ONE_EIGHT_EXACT')); return true;
@@ -270,6 +272,7 @@
       emitHostLine('XIAONEXUS_ARM_REASON:' + mode.toUpperCase() + ':' + reason);
       return false;
     }
+    if (routingBlocked) return reject('ROUTING_BLOCKED');
     if (!ready) return reject('NOT_READY');
     if (gateDisabled || errors) return reject('GATE_DISABLED');
     if (pending) return reject('RESERVATION_PENDING');
@@ -300,7 +303,19 @@
   }
   rpc.exports = {
     onFridaStdin: function (input) {
-      var m = /^(ARM|ARMEXP) ([a-fA-F0-9]{32})\s*$/.exec(String(input));
+      var command = String(input).trim();
+      if (command === 'BLOCK') {
+        routingBlocked = true;
+        stopGate('ROUTING_BLOCKED');
+        emitHostLine('XIAONEXUS_ROUTE_BLOCKED');
+        return;
+      }
+      if (command === 'UNBLOCK') {
+        routingBlocked = false;
+        emitHostLine('XIAONEXUS_ROUTE_UNBLOCKED');
+        return;
+      }
+      var m = /^(ARM|ARMEXP) ([a-fA-F0-9]{32})\s*$/.exec(command);
       if (!m) return;
       var id = m[2].toLowerCase();
       var accepted = armDialog(id, m[1] === 'ARMEXP' ? 'expand' : 'refusal');
@@ -312,11 +327,12 @@
     armboth: function () { return armOne(true, false); },
     armwait: function () { return armOne(true, true); },
     disarm: function () {
+      routingBlocked = true;
       gateStats.explicitDisarms++; stopGate('DISARM'); uiStats.uiDisarmed++; note('PASS_ALL'); return true;
     },
     status: function () {
       expireArm(); pruneUi();
-      return {ready: ready, mode: 'XIAONEXUS_V51_TARGET_DIALOG', targetArmed: !!targetedDialog, targetedMode: targetedMode,
+      return {ready: ready, routingBlocked: routingBlocked, mode: 'XIAONEXUS_V51_TARGET_DIALOG', targetArmed: !!targetedDialog, targetedMode: targetedMode,
         armed: armed, armedUI: armedUI, gateDisabled: gateDisabled, armSupported: true, uiSupported: true, waitSupported: true,
         pendingReservation: !!pending, owners: countOwners(), errors: errors,
         gateCounters: Object.assign({}, gateStats), uiCounters: Object.assign({}, uiStats),

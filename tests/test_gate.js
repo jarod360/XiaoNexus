@@ -9,7 +9,7 @@ const path = require('path');
 const scriptText = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'frida', 'lx04_nexus_gate.js'), 'utf8');
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('PASS', name); }
-function setup() {
+function setup(unblock = true) {
   let now = 100000;
   let currentThread = 100;
   let identity = 1;
@@ -64,6 +64,7 @@ function setup() {
   const controlMessages = [];
   const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast:obj=>obj,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
+  if (unblock) rpc.exports.onFridaStdin('UNBLOCK');
   const id = ch => ch.repeat(32);
   function event(name, dialog){return invoke(reg,{}, {getFullName:()=>name,getId:()=>dialog});}
   function makeSpeak(dialog,text){return {getDialogId:()=>({isPresent:()=>true,get:()=>dialog}),getPayload:()=>({getText:()=>text})};}
@@ -85,7 +86,26 @@ function setup() {
 const REF='这可把我难住了，看来要更努力学习了';
 function orig(t,id,text){t.event('SpeechRecognizer.Recognize',id);t.event('System.Ack',id);t.speakEvent(id,text)}
 function native(t,id,text){t.event('SpeechSynthesizer.Synthesize',id);t.speakEvent(id,text)}
-test('default hooks 8 and no arm, no UI block',()=>{let t=setup();let s=t.status();assert(s.ready);assert(!s.armed);assert(s.uiSupported);assert(s.notes[0].includes('hooks=8'))});
+test('default hooks start BLOCKED until supervisor confirms route readiness',()=>{let t=setup(false),s=t.status();assert(s.ready);assert(s.routingBlocked);assert(!s.armed);assert.equal(t.rpc.exports.armone(),false);assert(s.uiSupported);assert(s.notes[0].includes('hooks=8'))});
+test('BLOCK releases an active PCM owner to pass-through and UNBLOCK resumes routing',()=>{
+ let t=setup(),id=t.id('b');
+ assert(t.rpc.exports.armboth());
+ orig(t,id,REF);
+ let p=t.owner(id);
+ t.write(p,Uint8Array.of(1,2));
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,1);
+ t.rpc.exports.onFridaStdin('BLOCK');
+ assert(t.status().routingBlocked);
+ assert(!t.status().armed);
+ let passed=t.status().gateCounters.pcmPassedBlocks;
+ t.write(p,Uint8Array.of(3,4));
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,1);
+ assert.equal(t.status().gateCounters.pcmPassedBlocks,passed+1);
+ t.end(p);
+ t.rpc.exports.onFridaStdin('UNBLOCK');
+ assert(!t.status().routingBlocked);
+ assert(t.rpc.exports.armone());
+});
 test('default known refusal renders native card',()=>{let t=setup(),id=t.id('a');orig(t,id,REF);let p=t.owner(id);t.toast(id,REF);assert.equal(t.counts().cardShows,1);assert.equal(t.status().uiCounters.uiSuppressed,0);t.end(p)});
 test('default PCM passthrough on known refusal',()=>{let t=setup(),id=t.id('b');orig(t,id,REF);let p=t.owner(id);t.write(p,Uint8Array.of(1,2));t.end(p);assert.equal(t.status().gateCounters.pcmDroppedBlocks,0);assert.equal(t.status().gateCounters.eofPassed,1)});
 test('ARM ONE keeps PCM-only behavior and does not hide UI',()=>{let t=setup(),id=t.id('c');assert(t.rpc.exports.armone());orig(t,id,REF);let p=t.owner(id);t.write(p,Uint8Array.of(1,2));t.toast(id,REF);t.end(p);assert.equal(t.counts().cardShows,1);assert.equal(t.status().gateCounters.pcmDroppedBlocks,1);assert.equal(t.status().uiCounters.uiSuppressed,0)});
