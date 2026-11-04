@@ -64,3 +64,16 @@ The historical OEM samples demonstrate that Template.General can represent both 
 ## V51.2 filesystem and retirement audit
 
 The default on-device Frida injector/script paths are restricted to `/data/adb/xiaonexus/frida/`. Both Standard and Doorbell test archives now arrange executables in `bin/` and the Frida gate script in `frida/`. A separate read-only legacy-install audit is added. The audit only reports existence/processes/boot script references; it never deletes files. Final old-Agent cleanup is **not** yet performed on the physical LX04 and must not be claimed as complete.
+
+## V51.2 Doorbell actual LX04 commissioning checkpoints (2026-11-04)
+
+The operator has completed the following on **one** Android 8.1 / SDK 27 / armeabi-v7a LX04. These checkpoints do **not** establish automatic refusal handoff or acceptance for the future stable V52 release.
+
+- Preflight: exactly one OEM main process, root access; old XiaoSeek Agent and old Frida server each running prior to switchover.
+- Legacy audit: old install and historical Frida test directory exist; `/data/adb/service.d/lx04-deepseek.sh` references the old supervisor. The older V51.2 audit had an Android shell parentheses error; the V51.3 read-only audit fix returned 1 old startup reference, 3 script files examined, 0 scan errors.
+- Rescue archive: the initial `tar` stream contained a 39-byte `removing leading '/' from member names` prefix, invalidating the archive format. A copy with the prefix removed passed the operator's required-file extraction check; keep the original, repaired archive, and SHA256 on the private D-drive. A live backup is not a proven byte-consistent snapshot.
+- New isolated tree: `/data/adb/xiaonexus/bin/` Agent/Supervisor and `/data/adb/xiaonexus/frida/` script and **official Frida 16.6.6 android-arm frida-inject** installed. Device-local SHA256 equality and injector `--version=16.6.6` verified. No stock APK changes.
+- Old Agent terminated using its `disabled` protection. Its existing `run.sh` invokes audio recovery on exit. The new Doorbell answer receiver started; authenticated `/v1/health` returned `ready=true` and `no_global_mute=true`. Existing private Xiaomi config and cached token were reused without reconfiguration.
+- **15-second** new on-device supervisor test with **no `--enable`** returned `PREFLIGHT_OBSERVE_PASS`, `OBSERVE_READY_PASS`, `OBSERVE_PROCESS_CLEANUP_PASS`, `OBSERVE_TEST_COMPLETED`. This verifies that the Frida injector attached/declared ready and its test processes exited with the OEM main PID unchanged; it does **not** prove normal voice commands were issued during attachment, audio/UI experience, refusal PCM gate, optional expansion, doorbell popup, or safe autonomous restart.
+
+Remaining critical checkpoints: observe ordinary spoken OEM responses during an active attach; one bounded `--enable` refusal trial with user listening/observing UI; independent DeepSeek TTS and text; context expansion; doorbell preemption; restart and rollback. Old XiaoSeek, boot script, and legacy Frida server must not be deleted until these pass.
