@@ -82,3 +82,6 @@ Go 命令会自行拉取 go.mod 所需公开依赖；需要网络，但不需要
 **这两种是“主机桥接预览版”，不是可独立开机运行的正式版。** 运行时还需要 Frida 16.6.6 的 Windows/ADB host controller。旧版本的 legacy-agent 构建仅作为历史产物保留，不应再用于这次新方案验证。
 
 设备接收器只监听 127.0.0.1:18765，使用私有 256 位控制令牌；不分发原厂 APK、Token 和个人日志。设备上的真实音频、全屏和门铃联动仍待实机验证。详见 [AUTO_BRIDGE.md](AUTO_BRIDGE.md)。
+
+
+**V51.x versioning:** Current test artifacts use VERSION=V51.1. Subsequent changes increment the minor test revision (V51.2, ...). The final validated public build is reserved for V52. Each candidate ZIP contains its own xiaonexus-agent binary, supervisor, JS, checksum manifest, read-only PowerShell preflight and test README; no Git checkout is needed on Windows.

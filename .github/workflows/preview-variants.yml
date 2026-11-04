@@ -1,11 +1,11 @@
-name: Build LX04 preview variants
+name: XiaoNexus V51.x Test Builds
 on:
   workflow_dispatch:
   push:
     branches:
       - main
     tags:
-      - "v*-preview*"
+      - "v51.*-preview*"
 permissions:
   contents: write
 jobs:
@@ -47,10 +47,10 @@ jobs:
       - name: Upload two separate bridge previews
         uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-LX04-bridge-variants
+          name: XiaoNexus-V51.1-test-build
           path: |
-            dist/XiaoNexus-LX04-bridge-standard-armv7.tar.gz
-            dist/XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS
       - name: Publish preview-tag assets only
         if: startsWith(github.ref, 'refs/tags/')
@@ -65,6 +65,6 @@ jobs:
             Standard excludes doorbell; Doorbell retains the original personal guard.
             Do not uninstall a working XiaoSeek until real-device acceptance.
           files: |
-            dist/XiaoNexus-LX04-bridge-standard-armv7.tar.gz
-            dist/XiaoNexus-LX04-bridge-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS

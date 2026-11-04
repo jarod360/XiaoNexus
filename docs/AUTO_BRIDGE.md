@@ -19,7 +19,7 @@
 - 上一轮必须是原厂 `Template.General` **且 `payload.skill_icon.description` 精确为“智能问答”** 的知识百科回答，并且有同 `dialog_id` 的最终 ASR；不能只看 Template.General 名称。真实 OEM 日志里计算器 `1+99×2=199` 也使用 Template.General，但 skill_icon 是“计算器”，必须排除。普通 Speak、Toast、音乐和设备控制也不能建立上轮知识缓存。
 - 问题必须紧邻上一轮，默认 5 分钟内；任意第三轮问答会使更早的“上轮”失效。
 - DeepSeek 重新回答**原问题**；旧回答只是可纠错的背景，不盲目扩写错误结论。
-- 针对这条明确口令，v53 改为**先等待该口令的 OEM 回复通过同 dialogId 的 PCM Owner 安全门控，再调用 DeepSeek**，避免原厂语音与 DeepSeek 立即重叠；若原厂没有可门控的 Speak，则默认放行、不启动 DeepSeek。该特殊行为只限显式口令，不影响原厂普通问答。
+- 针对这条明确口令，V51.1 改为**先等待该口令的 OEM 回复通过同 dialogId 的 PCM Owner 安全门控，再调用 DeepSeek**，避免原厂语音与 DeepSeek 立即重叠；若原厂没有可门控的 Speak，则默认放行、不启动 DeepSeek。该特殊行为只限显式口令，不影响原厂普通问答。
 - 没有可确认的上一轮则不调用 DeepSeek。对于显式口令，Frida 可按该会话单独门控正常原生回话，但非 Speak 类输出和实际屏幕竞争仍需实机确认。
 - 该口令是明确的用户选择，不代表恢复对普通 ASR 问题的关键词路由。
 
@@ -72,7 +72,7 @@ $device = '<你的 ADB 设备序列>'
 Frida-server 常驻**不会**自动加载 Hook。官方 Frida Gadget 的 script 模式必须先加载 Gadget 到 OEM 进程；直接改签原厂 APK 或无验证的 Magisk 注入在 LX04 上风险较高。**目前没有设备端完全自主加载 Frida 16.6.6 并在 OEM 重启后安全重附加的已验证方案**，因此 v51 是 Windows/ADB host-assisted 自动接管预览，不是可拆电脑、可卸旧版的稳定发行版。另需验证 OEM 日志实时性、日志轮转、并发、长 TTS、故障时静默风险。
 
 
-## v52: on-device supervisor packaged, real-device verification pending
+## V51.1: on-device supervisor packaged, real-device verification pending
 
 This source tree now bundles the ARMv7 xiaonexus-supervisor binary together with the selected Standard/Doorbell answer receiver and the tested candidate Frida JS. The device-side supervisor uses the official Frida 16.6.6 android-arm frida-inject command, passes ARM dialogId through the documented interactive stdin RPC, and listens for gate_accepted from the injected script. This is a verified tool API contract, **not yet an observed result on the LX04**.
 
@@ -106,3 +106,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File '.\scripts\Preflight_Xia
 ~~~
 
 The script reads Android SDK/ABI, the main OEM PID (not :miot), current old Agent and Frida process counts, and root access. It **never** pushes a binary, modifies the APK, stops a process, changes tokens, or touches the old service. Passing this check does not authorize active injection. D:\Codex only; do not install or stage files under C:\.
+
+
+## No-Git distribution
+
+The device binaries are supplied as V51.x GitHub Actions download artifacts. Windows does not need Git or Go to extract and perform read-only preflight. See [NO_GIT_TEST.md](NO_GIT_TEST.md). Versions below stable V52 are experimental and the old XiaoSeek installation must remain recoverable.

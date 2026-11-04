@@ -1,22 +1,43 @@
 #!/bin/sh
-# Build two XiaoNexus ARMv7 bundles: receiver + supervisor + approved script.
-# This is build-only: no ADB, no installation, no changes to a speaker.
+# Build-only V51.x candidate bundles. No ADB or device changes.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION=$(tr -d '\r\n' < "$ROOT/VERSION")
+case "$VERSION" in V51.*) ;; *) echo 'Only V51.x test builds are allowed before V52 stable' >&2; exit 1 ;; esac
 python3 "$ROOT/scripts/prepare-legacy-variants.py"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
 cd "$ROOT/.build/legacy-agent-src/client"
 go test ./cmd/xiaonexus-agent ./cmd/xiaonexus-supervisor
 go test -tags doorbell ./cmd/xiaonexus-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$OUT/XiaoNexus-LX04-bridge-standard-armv7" ./cmd/xiaonexus-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags doorbell -trimpath -ldflags="-s -w" -o "$OUT/XiaoNexus-LX04-bridge-doorbell-armv7" ./cmd/xiaonexus-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="-s -w" -o "$OUT/xiaonexus-supervisor-armv7" ./cmd/xiaonexus-supervisor
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-supervisor-armv7" ./cmd/xiaonexus-supervisor
 cp "$ROOT/runtime/frida/lx04_nexus_gate.js" "$OUT/lx04_nexus_gate.js"
-cd "$OUT"
-sha256sum XiaoNexus-LX04-bridge-standard-armv7 XiaoNexus-LX04-bridge-doorbell-armv7 xiaonexus-supervisor-armv7 lx04_nexus_gate.js > SHA256SUMS
 for flavor in standard doorbell; do
-  tar -czf "XiaoNexus-LX04-bridge-$flavor-armv7.tar.gz" "XiaoNexus-LX04-bridge-$flavor-armv7" "xiaonexus-supervisor-armv7" "lx04_nexus_gate.js" "SHA256SUMS"
+  tag=''
+  if [ "$flavor" = doorbell ]; then tag='doorbell'; fi
+  if [ -n "$tag" ]; then
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags "$tag" -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
+  else
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
+  fi
+  PKG="$OUT/package-$flavor"
+  mkdir -p "$PKG"
+  cp "$OUT/xiaonexus-$flavor-armv7" "$PKG/xiaonexus-agent"
+  cp "$OUT/xiaonexus-supervisor-armv7" "$PKG/xiaonexus-supervisor"
+  cp "$OUT/lx04_nexus_gate.js" "$PKG/lx04_nexus_gate.js"
+  cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
+  printf '%s\n' "$VERSION" > "$PKG/VERSION"
+  printf '%s\n' \
+    "XiaoNexus $VERSION $flavor ARMv7 experimental build" \
+    '1. Do not uninstall the working XiaoSeek agent.' \
+    '2. Windows PC: extract under D:\Codex and run the read-only Preflight_XiaoNexus.ps1 first.' \
+    '3. Native attach needs a separate OFFICIAL frida-inject 16.6.6 android-arm binary.' \
+    '4. The new supervisor defaults to observe-only; no real LX04 autonomous takeover is verified.' \
+    '5. Do not run both old and new agents simultaneously; test with a rollback path.' \
+    > "$PKG/README_TEST.txt"
+  (cd "$PKG" && sha256sum xiaonexus-agent xiaonexus-supervisor lx04_nexus_gate.js > SHA256SUMS)
+  tar -czf "$OUT/XiaoNexus-$VERSION-LX04-$flavor-armv7.tar.gz" -C "$PKG" .
 done
-echo "BUILD_OK: separate agent variants plus shared ARMv7 supervisor"
-echo "CAUTION: autonomous injection requires physical acceptance; default OBSERVE_ONLY"
+cd "$OUT"
+sha256sum "XiaoNexus-$VERSION-LX04-standard-armv7.tar.gz" "XiaoNexus-$VERSION-LX04-doorbell-armv7.tar.gz" > SHA256SUMS
+echo "BUILD_OK: $VERSION standard and doorbell experimental bundles (two self-checking archives)"

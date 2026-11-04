@@ -6,18 +6,23 @@ param(
     [string]$ADB = 'D:\Codex\platform-tools\adb.exe'
 )
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# Accept either a downloaded release bundle or the source tree.
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'xiaonexus-agent') -PathType Leaf) {
+    $root = (Resolve-Path $PSScriptRoot).Path
+    $required = @('xiaonexus-agent', 'xiaonexus-supervisor', 'lx04_nexus_gate.js', 'SHA256SUMS', 'VERSION')
+} else {
+    $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    $required = @(
+        'runtime\frida\lx04_nexus_gate.js',
+        'runtime\device-agent\main.go',
+        'runtime\device-supervisor\main.go',
+        'docs\AUTO_BRIDGE.md'
+    )
+}
 if (-not $root.StartsWith('D:\Codex\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'XiaoNexus source must be in D:\Codex'
+    throw 'XiaoNexus must be unpacked under D:\Codex'
 }
 if (-not (Test-Path -LiteralPath $ADB -PathType Leaf)) { throw "ADB_NOT_FOUND: $ADB" }
-
-$required = @(
-    'runtime\frida\lx04_nexus_gate.js',
-    'runtime\device-agent\main.go',
-    'runtime\device-supervisor\main.go',
-    'docs\AUTO_BRIDGE.md'
-)
 foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) {
         throw "REQUIRED_FILE_MISSING: $relative"

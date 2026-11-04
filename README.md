@@ -118,3 +118,10 @@ Last-answer expansion accepts only the immediately preceding OEM Template.Genera
 
 
 **Safe first check:** Run the read-only [Windows D-drive preflight](scripts/Preflight_XiaoNexus.ps1) before staging anything on the speaker. The required two-stage device observation and rollback checklist remains in [AUTO_BRIDGE](docs/AUTO_BRIDGE.md).
+
+ 
+## Version policy: V51.x tests, V52 after acceptance
+
+The release/test version is read from [VERSION](VERSION). During development we ship **V51.1, V51.2, ...** only. **V52** is reserved for an actual tested stable release after LX04 on-device attach, automatic refusal handoff, opt-in expansion, normal commands, doorbell, reboot and rollback have all passed. Historical internal Frida experiment numbers do not imply a public release.
+
+**No local Git is needed:** download the [latest successful Actions artifact](../../actions/workflows/preview-variants.yml), extract a Standard or Doorbell archive to `D:\Codex`, verify SHA256 and run the read-only preflight. Full [no-Git instructions](docs/NO_GIT_TEST.md). Active device takeover remains unverified and old XiaoSeek must be retained for recovery.
