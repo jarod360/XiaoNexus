@@ -101,13 +101,23 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   w.Header().Set("Content-Type", "application/json")
   // The host must not arm refusal PCM if the personal doorbell receiver
   // would reject the follow-up DeepSeek request.
-  ready := s.model != nil && s.box != nil &&
-    (s.doorbell == nil || !s.doorbell.check(r.Context()))
-  if ready {
-    io.WriteString(w, `{"ready":true,"mode":"on-device-answer-only","no_global_mute":true}`)
-  } else {
-    io.WriteString(w, `{"ready":false,"mode":"doorbell-blocked-or-unavailable","no_global_mute":true}`)
+  healthy := s.model != nil && s.box != nil
+  blocked := healthy && s.doorbell != nil && s.doorbell.check(r.Context())
+  ready := healthy && !blocked
+  mode := "on-device-answer-only"
+  if !healthy {
+   mode = "receiver-unavailable"
+  } else if blocked {
+   mode = "doorbell-prioritized-or-state-unavailable"
   }
+  status := struct {
+   Healthy bool `json:"healthy"`
+   Ready bool `json:"ready"`
+   RoutingBlocked bool `json:"routing_blocked"`
+   Mode string `json:"mode"`
+   NoGlobalMute bool `json:"no_global_mute"`
+  }{healthy, ready, blocked, mode, true}
+  _ = json.NewEncoder(w).Encode(status)
   return
  }
  if r.URL.Path != "/v1/query" || r.Method != http.MethodPost { http.NotFound(w, r); return }
