@@ -47,7 +47,9 @@ Xiaomi authentication failed
 - 变更：启动 Agent 前导出 Android 系统 CA 目录；用户 CA 目录存在时再追加。
 - 保持正常 x509 校验；不允许使用 `InsecureSkipVerify` 或关闭证书验证作为绕过。
 - V51.5 版本号、resident-candidate artifact 和 preview artifact 名称随同本次提交同步更新。
-- PR/CI 状态以 GitHub 页面为准；在 CI 通过前，不得把候选包称为已验证构建。
+- GitHub Actions run #22：**success**，Frida 回归、Shell/PowerShell 语法、两个 ARMv7 构建、Go tests 与 artifact 上传全部通过。
+- Artifact：`XiaoNexus-V51.5-resident-candidate`，ID `13327885651`，大小 19,578,160 bytes；[下载入口 / run #22](https://github.com/jarod360/XiaoNexus/actions/runs/41836686083)。
+- CI 成功只代表候选构建通过，不代表设备 TLS 认证或语音功能已验收。
 
 ## 3. V51.5 预期产物
 
@@ -68,7 +70,7 @@ Standard 与 Doorbell 不能混用 Agent。两者共用同一 Supervisor 和 Fri
 
 ## 4. 构建成功后的部署顺序
 
-1. 在 PR #5 最新提交的 resident-candidate CI 成功后，下载完整 `XiaoNexus-V51.5-resident-candidate` artifact。
+1. 从 PR #5 最新提交的 resident-candidate CI run #22 下载完整 `XiaoNexus-V51.5-resident-candidate` artifact（ID `13327885651`）。
 2. 所有下载、解压、临时文件和备份均放在 `D:\Codex\XiaoNexus\V51.5` 或其子目录，不在 C 盘创建项目文件。
 3. 核对 ZIP SHA256；解压后核对外层 `SHA256SUMS`；再进入选定的 Doorbell 包，校验包内每个文件的 SHA256。
 4. 检查 `VERSION` 内容为 `V51.5`，并检查 `resident/resident.sh` 同时包含 DHCP DNS 读取和 `SSL_CERT_DIR` 设置。
