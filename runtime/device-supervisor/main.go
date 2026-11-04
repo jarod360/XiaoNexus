@@ -225,6 +225,24 @@ func scanLines(ctx context.Context,reader io.Reader,events chan<- event,kind str
   select{case events<-event{kind:"fatal",value:kind+" stream ended"}:case <-ctx.Done():}
  }
 }
+// parseArmResult validates a single machine-generated acknowledgement.
+func parseArmResult(line string)(string,bool,bool){
+ constPrefix:="XIAONEXUS_ARM:"
+ if !strings.HasPrefix(line,constPrefix){return "",false,false}
+ body:=strings.TrimPrefix(line,constPrefix)
+ if len(body)!=34 || body[32]!=':' || !validID.MatchString(body[:32]) {return "",false,false}
+ if body[33]!='0' && body[33]!='1' {return "",false,false}
+ return strings.ToLower(body[:32]),body[33]=='1',true
+}
+func parseArmReason(line string)(string,bool){
+ constPrefix:="XIAONEXUS_ARM_REASON:"
+ if !strings.HasPrefix(line,constPrefix){return "",false}
+ reason:=strings.TrimPrefix(line,constPrefix)
+ for _,c:=range reason {if !(c>='A'&&c<='Z')&&c!='_'&&c!=':'{return "",false}}
+ if len(reason)>80||len(reason)<8{return "",false}
+ return reason,true
+}
+
 func parseGate(line string)(string,bool){
  // Normal Frida messages are JSON lines. Diagnostic console logs and
  // stdout handshake lines are intentionally separate and never treated
@@ -270,24 +288,42 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   case ev:=<-events:
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
+    if id,accepted,ok:=parseArmResult(ev.value);ok {
+     mode:="REFUSAL";if d:=r.dialogs[id];d!=nil && d.expand{mode="EXPAND"}
+     state:="REJECTED";if accepted{state="ACCEPTED"}
+     log.Printf("XIAONEXUS_ARM_%s_%s dialog8=%s",mode,state,id[:8]);continue
+    }
+    if reason,ok:=parseArmReason(ev.value);ok{log.Print("XIAONEXUS_ARM_REASON:",reason);continue}
     if ev.value=="XIAONEXUS_READY"{ready=true;log.Print("XiaoNexus injector READY_PASS_ALL");continue}
     if strings.Contains(ev.value,`"type":"error"`){return errors.New("Frida JavaScript exception")}
     if id,ok:=parseGate(ev.value);ok{
      if !enable || !c.healthy(){return errors.New("gate accepted but receiver not ready")}
-     if a:=r.gate(id);(a.kind=="refusal"||a.kind=="expand") && !c.submit(a){
+     a:=r.gate(id)
+     if a.kind=="" {
+      if d:=r.dialogs[id];d!=nil && d.expand && r.clock().Sub(d.at)>12*time.Second {
+       log.Print("XIAONEXUS_EXPAND_GATE_TIMEOUT")
+      } else {log.Print("XIAONEXUS_GATE_UNMATCHED")}
+      continue
+     }
+     if a.kind=="expand"{log.Print("XIAONEXUS_EXPAND_GATE_ACCEPTED")}
+     if (a.kind=="refusal"||a.kind=="expand") && !c.submit(a){
       return errors.New("accepted PCM gate but DeepSeek request failed")
      }
     }
    } else if ev.kind=="oem" {
     a:=r.feed(ev.inst)
+    if ev.inst.kind=="knowledge" && r.previous!=nil && r.previous.dialogID==ev.inst.id {
+     log.Printf("XIAONEXUS_EXPAND_KNOWLEDGE_SAVED dialog8=%s",ev.inst.id[:8])
+    }
     if a.kind==""||!ready||!enable{continue}
     if a.kind=="arm" || a.kind=="arm_expand"{
+     if a.kind=="arm_expand"{log.Printf("XIAONEXUS_EXPAND_ARM_REQUESTED dialog8=%s",a.id[:8])}
      if !c.healthy(){continue}
      command:="ARM "
      if a.kind=="arm_expand"{command="ARMEXP "}
      _,_ = io.WriteString(stdin,command+a.id+"\n")
     }
-    if a.kind=="expand_unavailable"{log.Print("no immediately preceding OEM knowledge answer")}
+    if a.kind=="expand_unavailable"{log.Print("XIAONEXUS_EXPAND_CONTEXT_MISSING")}
    }
   }
  }

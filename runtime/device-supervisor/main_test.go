@@ -131,3 +131,16 @@ func TestBriefExpansionRequiresRecentKnowledge(t *testing.T){
  now=now.Add(61*time.Second)
  if x:=z.feed(instruction{"asr",c,"补充下"});x.kind=="arm_expand"{t.Fatal("stale brief command triggered")}
 }
+
+func TestArmDiagnosticEnvelope(t *testing.T){
+ id:=strings.Repeat("a",32)
+ if got,accepted,ok:=parseArmResult("XIAONEXUS_ARM:"+id+":1");!ok||!accepted||got!=id {t.Fatalf("accepted: %s %v %v",got,accepted,ok)}
+ if got,accepted,ok:=parseArmResult("XIAONEXUS_ARM:"+id+":0");!ok||accepted||got!=id {t.Fatalf("rejected: %s %v %v",got,accepted,ok)}
+ for _,invalid:=range []string{"XIAONEXUS_ARM:short:1","XIAONEXUS_ARM:"+id+":2","XIAONEXUS_ARM:"+id+":1 extra"} {
+  if _,_,ok:=parseArmResult(invalid);ok{t.Fatalf("accepted invalid message: %q",invalid)}
+ }
+ if reason,ok:=parseArmReason("XIAONEXUS_ARM_REASON:EXPAND:OWNER_BUSY");!ok||reason!="EXPAND:OWNER_BUSY"{t.Fatal(reason,ok)}
+ for _,invalid:=range []string{"XIAONEXUS_ARM_REASON:EXPAND:OWNER_BUSY some voice","XIAONEXUS_ARM_REASON:EX:小爱"} {
+  if _,ok:=parseArmReason(invalid);ok{t.Fatalf("leaked unexpected diagnostic: %q",invalid)}
+ }
+}

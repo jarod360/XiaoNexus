@@ -266,15 +266,23 @@
     if (!wanted) return false;
     gateStats.armCalls++;
     expireArm();
-    if (!ready || gateDisabled || errors || pending || countOwners() !== 0) return false;
+    function reject(reason) {
+      emitHostLine('XIAONEXUS_ARM_REASON:' + mode.toUpperCase() + ':' + reason);
+      return false;
+    }
+    if (!ready) return reject('NOT_READY');
+    if (gateDisabled || errors) return reject('GATE_DISABLED');
+    if (pending) return reject('RESERVATION_PENDING');
+    if (countOwners() !== 0) return reject('OWNER_BUSY');
     var origin = origins.get(wanted);
-    if (!origin || origin.name !== 'SpeechRecognizer.Recognize' ||
-        origin.sources.length !== 1 || !origin.recognizeSeq ||
-        Date.now() - origin.when > 12000) return false;
+    if (!origin) return reject('ORIGIN_MISSING');
+    if (origin.name !== 'SpeechRecognizer.Recognize' ||
+        origin.sources.length !== 1 || !origin.recognizeSeq) return reject('ORIGIN_MISMATCH');
+    if (Date.now() - origin.when > 12000) return reject('ORIGIN_EXPIRED');
     if (armed && targetedDialog && targetedDialog !== wanted) {
       armed = false; clearUi();
     }
-    if (armed) return false;
+    if (armed) return reject('ALREADY_ARMED');
     armed = true; armedUI = true; armedUIMode = 'wait';
     targetedDialog = wanted; targetedMode = mode; armAt = Date.now();
     // Recognize was already observed before the final ASR. Explicit id

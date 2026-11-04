@@ -1,0 +1,49 @@
+name: V51.4 resident candidate validation
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: legacy/XiaoSeek/client/go.mod
+          cache-dependency-path: legacy/XiaoSeek/client/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check Frida JavaScript syntax and regression suite
+        run: |
+          node --check runtime/frida/lx04_nexus_gate.js
+          node --check runtime/device-resident/efs_recover.js
+          node tests/test_gate.js
+      - name: Shell and PowerShell syntax only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($file in @('scripts/Install_Resident_LX04.ps1','scripts/Retire_Legacy_LX04.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -ne 0) { throw "PowerShell parse error in $file" }
+          }
+      - name: Shell syntax
+        run: |
+          sh -n scripts/build-variants.sh
+          for path in runtime/device-resident/*.sh; do sh -n "$path"; done
+      - name: Build both ARMv7 variants and run Go tests
+        run: sh scripts/build-variants.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XiaoNexus-V51.4-resident-candidate
+          path: |
+            dist/XiaoNexus-V51.4-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V51.4-LX04-doorbell-armv7.tar.gz
+            dist/SHA256SUMS
