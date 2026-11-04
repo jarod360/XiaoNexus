@@ -45,12 +45,47 @@ foreach ($entry in @(
     Write-Host ("{0}_PROCESS_COUNT={1}" -f $entry.Label, $found.Count)
 }
 
-# Only return matching startup-script paths, NEVER their contents.
-$bootSearch = 'grep -ilE "(lx04-deepseek|xiaoseek_v53_phase_a|frida-server)" /data/adb/service.d/* /data/adb/post-fs-data.d/* 2>/dev/null'
-$bootRefs = @(& $ADB -s $Device shell "su -c '$bootSearch'" 2>&1)
-$bootRefs = @($bootRefs | Where-Object { $_ -match '^/data/adb/(service\.d|post-fs-data\.d)/' })
-Write-Host ("OLD_BOOT_SCRIPT_REFERENCE_COUNT={0}" -f $bootRefs.Count)
+# Scan fixed Magisk startup locations, returning paths only (never file contents).
+# Android 8.1 adb/su shell quoting can strip regex grouping parentheses.
+# Never put grouped expressions into the nested su -c shell command.
+$bootRefs = @()
+$bootFilesChecked = 0
+$bootScanErrors = 0
+foreach ($bootDir in @('/data/adb/service.d', '/data/adb/post-fs-data.d')) {
+    $dirResult = @(& $ADB -s $Device shell "su -c 'ls -ld $bootDir 2>/dev/null'" 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "BOOT_DIR_ABSENT_OR_UNREADABLE=$bootDir"
+        continue
+    }
+    $files = @(& $ADB -s $Device shell "su -c 'ls -1d $bootDir/* 2>/dev/null'" 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "BOOT_DIR_EMPTY_OR_UNREADABLE=$bootDir"
+        continue
+    }
+    foreach ($candidate in $files) {
+        $candidate = "$candidate".Trim()
+        if ($candidate -notmatch '^/data/adb/(?:service\.d|post-fs-data\.d)/[A-Za-z0-9_.-]+$') {
+            $bootScanErrors++
+            Write-Host 'BOOT_SCRIPT_UNSUPPORTED_FILENAME=1'
+            continue
+        }
+        $result = @(& $ADB -s $Device shell "su -c 'grep -il -e lx04-deepseek -e xiaoseek_v53_phase_a -e frida-server -e lx04-agent $candidate 2>/dev/null'" 2>$null)
+        $code = $LASTEXITCODE
+        $bootFilesChecked++
+        if ($code -eq 0) {
+            $bootRefs += $candidate
+        } elseif ($code -ne 1) {
+            $bootScanErrors++
+            Write-Host "BOOT_SCRIPT_READ_ERROR=$candidate"
+        }
+    }
+}
+$bootRefs = @($bootRefs | Sort-Object -Unique)
+Write-Host ('OLD_BOOT_SCRIPT_REFERENCE_COUNT={0}' -f $bootRefs.Count)
 foreach ($ref in $bootRefs) { Write-Host "BOOT_SCRIPT_PATH=$ref" }
+Write-Host "OLD_BOOT_SCRIPT_FILES_CHECKED=$bootFilesChecked"
+Write-Host "OLD_BOOT_SCRIPT_SCAN_ERRORS=$bootScanErrors"
+if ($bootScanErrors -gt 0) { Write-Host 'OLD_BOOT_SCRIPT_SCAN_INCOMPLETE=1' }
 Write-Host 'NO_CHANGES_MADE=1'
 Write-Host 'NO_LEGACY_FILES_REMOVED=1'
 Write-Host 'NO_RUNNING_PROCESSES_STOPPED=1'
