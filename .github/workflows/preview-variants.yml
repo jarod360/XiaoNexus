@@ -54,7 +54,7 @@ jobs:
       - name: Upload two separate bridge previews
         uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-V51.3-test-build
+          name: XiaoNexus-V51.5-test-build
           path: |
             dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
             dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz

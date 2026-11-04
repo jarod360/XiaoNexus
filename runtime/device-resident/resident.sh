@@ -117,6 +117,13 @@ while [ ! -e "$disabled" ]; do
       continue
     fi
     log ANDROID_DNS_READY
+    # This agent is built as GOOS=linux/ARMv7; explicitly expose Android CA roots.
+    SSL_CERT_DIR=/system/etc/security/cacerts
+    if [ -d /data/misc/keychain/certs-added ]; then
+      SSL_CERT_DIR="$SSL_CERT_DIR:/data/misc/keychain/certs-added"
+    fi
+    export SSL_CERT_DIR
+    log ANDROID_CA_STORE_READY
     "$agent" > "$diag/agent-last.log" 2>&1 &
     log AGENT_LAUNCH_REQUESTED
     sleep 5

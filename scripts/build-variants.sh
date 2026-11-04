@@ -29,7 +29,7 @@ for flavor in standard doorbell; do
   cp "$ROOT/runtime/device-resident/"*.sh "$ROOT/runtime/device-resident/"*.js "$PKG/resident/"
   cp "$ROOT/scripts/Install_Resident_LX04.ps1" "$PKG/Install_Resident_LX04.ps1"
   cp "$ROOT/scripts/Retire_Legacy_LX04.ps1" "$PKG/Retire_Legacy_LX04.ps1"
-  cp "$ROOT/docs/RESIDENT_EFS_V51_4_HANDOFF.md" "$PKG/HANDOFF.md"
+  cp "$ROOT/docs/RESIDENT_EFS_V51_5_HANDOFF.md" "$PKG/HANDOFF.md"
   cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
   cp "$ROOT/scripts/Audit_Legacy_XiaoSeek.ps1" "$PKG/Audit_Legacy_XiaoSeek.ps1"
   printf '%s\n' "$VERSION" > "$PKG/VERSION"

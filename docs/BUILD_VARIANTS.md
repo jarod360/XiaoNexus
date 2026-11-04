@@ -12,7 +12,7 @@
 - 固定复用上游子模块 `legacy/XiaoSeek` 的小米认证、DeepSeek、RC4 MIoT TTS 和门铃代码；`scripts/prepare-legacy-variants.py` 在 `.build/` 复制后生成新入口及双变体，不改变固定上游仓库。
 - **当前仓库 `runtime/device-agent/` 仅有 main.go 等核心文件；门铃具体 `doorbell.go` 来自生成的复制工作树，不在该目录直接维护。** 排查个人门铃必须检查源仓库对应 `client/cmd/lx04-agent/doorbell.go`、准备脚本以及生成物。
 - `scripts/build-variants.sh` 对 Android ARMv7 交叉编译，生成 `bin/xiaonexus-agent`、`bin/xiaonexus-supervisor`、`frida/lx04_nexus_gate.js` 和 `SHA256SUMS`。官方 `frida-inject 16.6.6 android-arm` 单独获取，包内不含任何账号或 Token。
-- GitHub Actions：`.github/workflows/preview-variants.yml`；测试版本由 `VERSION` 决定。现有构建工作流的下载资产为 `XiaoNexus-V51.3-test-build`；设备上已验证的是较早的 **V51.2 Doorbell** 二进制，不得默认为已经升级。
+- GitHub Actions：`.github/workflows/preview-variants.yml` 与 `.github/workflows/resident-candidate.yml`；测试版本由根目录 `VERSION` 决定。当前候选版本为 **V51.5**，resident-candidate 产物命名为 `XiaoNexus-V51.5-resident-candidate`，preview 产物命名为 `XiaoNexus-V51.5-test-build`。LX04 当前保持禁用；历史 V51.2/V51.4 测试记录不代表 V51.5 已部署或验收。
 
 ## 约束
 

@@ -1,6 +1,6 @@
 # XiaoNexus LX04：当前实机状态（2026-11-04）
 
-> **当前状态（2026-11-04 19:21）：XiaoNexus 已手动禁用，原厂小爱仍运行；Agent 启动失败的根因已定位为未继承 Android DHCP DNS，DNS 自动获取修复已通过 PR #4 合并到 main、CI run #18 成功并生成候选包；尚未部署/验收。** 本文优先记录用户 LX04 的现场证据；旧版 V51.2 资源归因历史另见交接文档与 Git 历史。项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
+> **当前状态（2026-11-04 21:18）：XiaoNexus 已手动禁用，原厂小爱仍运行；设备没有 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；20:58 Agent 启动已越过 DNS 阶段，但 TLS 报 `x509: certificate signed by unknown authority`。设备系统 CA 目录 `/system/etc/security/cacerts` 有 135 个文件，resident.sh 原先没有设置 `SSL_CERT_DIR`。PR #5 已加入进程级 Android CA 路径并将版本升级为 V51.5；GitHub Actions run #22 已成功，生成 artifact `XiaoNexus-V51.5-resident-candidate`（ID `13327885651`）。设备尚未部署，继续保持 disabled。本文优先记录用户 LX04 的现场证据；项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
 
 ## 当前实机运行
 
@@ -50,7 +50,7 @@
 4. gate 到达时若 route blocked / submit 失败 / dialog 无法关联，则立即 BLOCK、PASS-ALL，不再因此重启 Supervisor。
 5. Doorbell Guard 原来的约 60 秒 popup、8 秒 hold、250ms 轮询以及 Agent 的 `preemptForDoorbell()` 均未修改；EFS、门铃守护、OEM APK 也未修改。
 
-**部署状态：GitHub main 已更新，LX04 设备仍运行旧的 V51.4 常驻二进制/JS。没有向设备推送新版本，也没有重启或改变当前长期测试。** Agent、Supervisor、Frida JS 必须作为匹配版本一起部署，禁止混用旧 Agent health JSON 与新 Supervisor。
+**部署状态：LX04 已手动禁用 XiaoNexus；最新进程检查仅见原厂 `micolauncher` / `:miot`，没有 Agent、Supervisor 或 Frida。V51.5 尚未部署，也没有重启或改变原厂状态。** Agent、Supervisor、Frida JS 必须作为同一候选包一起部署，禁止混用不同版本组件。
 
 #### 部署器同步修复与候选包（PR #3）
 
@@ -103,9 +103,9 @@
 
 ## 下一次会话入口
 
-先读本文件及 [RESIDENT_EFS_V51_4_HANDOFF.md](RESIDENT_EFS_V51_4_HANDOFF.md)，再核实设备现有日志和实际 PID。旧 [ARCHITECTURE.md](ARCHITECTURE.md)、[AUTO_BRIDGE.md](AUTO_BRIDGE.md)、[VALIDATION.md](VALIDATION.md) 保存此前的设计证据与反例；不要重新从 V48/V50 过时实验归因。
+先读本文件及 [RESIDENT_EFS_V51_5_HANDOFF.md](RESIDENT_EFS_V51_5_HANDOFF.md)，再核实设备现有日志和实际 PID；[RESIDENT_EFS_V51_4_HANDOFF.md](RESIDENT_EFS_V51_4_HANDOFF.md) 仅作为历史记录。旧 [ARCHITECTURE.md](ARCHITECTURE.md)、[AUTO_BRIDGE.md](AUTO_BRIDGE.md)、[VALIDATION.md](VALIDATION.md) 保存此前的设计证据与反例；不要重新从 V48/V50 过时实验归因。
 
-**版本判定：** 16:55 的早期 V51.4 常驻启动曾通过；19:14 run13 新 Agent 因 DNS 环境失败，当前已禁用。PR #4 的 DNS 修复已合并且 CI 通过，待新候选包实机验证。长期稳定、门铃实际抢占、冷重启与 expand 漏拦截仍在验证；不能称 V52 稳定版。
+**版本判定：** V51.4 的早期常驻启动曾出现 `READY_PASS_ALL`，但后续 DNS 环境问题已修复到源码；20:58 新一轮启动进一步暴露 TLS CA 信任路径问题。V51.5 当前为候选版，PR #5 与 CI 待验证，设备保持禁用。长期稳定、门铃实际抢占、冷重启与 expand 漏拦截仍在验证；不能称 V52 稳定版。
 
  
 ## 2026-11-04 19:14：Agent 启动 DNS 故障（已定位，修复待部署）
@@ -147,3 +147,36 @@ runtime/device-agent/main.go 调用 runtimeenv.ConfigureDNSFromEnv()。该函数
 5. 路由器 DNS 由 DHCP 自动下发；换路由器/DHCP DNS 时，下一次 Agent 启动会重新读取系统属性。当前实现不在 Agent 运行中热切换 DNS；若网络/DNS 改变，需要通过常规安全重启 XiaoNexus 让它重新读取。
 
 **当前设备保持禁用状态。PR #4 已合并且 CI 通过，但 DNS 修复尚未实机验收，不能标记为已解决。**
+
+
+## 2026-11-04 20:58–21:10：Agent TLS 根证书加载故障（V51.5 修复候选）
+
+### 最新现场证据
+
+- 20:58 Agent 日志：`tls: failed to verify certificate: x509: certificate signed by unknown authority`，请求目标为 `https://account.xiaomi.com/pass/serviceLogin?sid=micoapi&_json=true`。
+- 这与此前 `lookup account.xiaomi.com on [::1]:53` 不同：最新错误已进入 TLS 证书验证阶段；不能再把当前失败归因于 DNS。
+- Android 系统 CA 目录 `/system/etc/security/cacerts` 存在，目录内有 **135** 个文件。
+- `/data/misc/keychain/certs-added` 不存在；这是可选用户 CA 目录，不影响使用系统 CA。
+- 设备端原 resident.sh 没有设置 `SSL_CERT_DIR`。Agent 是 Linux/ARMv7 Go 二进制，未指定 Android 系统 CA 路径时，Go 的系统根证书搜索路径可能不包含 Android 证书目录。
+
+### PR #5 / V51.5 修改
+
+- 分支：`fix/lx04-android-ca-trust-20261104`；PR：https://github.com/jarod360/XiaoNexus/pull/5。
+- 在 Agent 启动前设置进程级 `SSL_CERT_DIR=/system/etc/security/cacerts`。
+- 若 `/data/misc/keychain/certs-added` 存在，则追加为第二个目录；不存在时不报错。
+- 不关闭 TLS 验证、不使用 insecure skip verify、不下载或安装证书、不修改 Android 系统分区、不改 Agent 二进制。
+- 本次版本源为根目录 `VERSION=V51.5`；构建将生成 Standard 与 Doorbell 两个 ARMv7 包，候选 artifact 名称为 `XiaoNexus-V51.5-resident-candidate`。
+- GitHub Actions run #22：**success**，完整执行 Frida 回归、Shell/PowerShell 语法、两个 ARMv7 构建、Go tests 与 artifact 上传。
+- Artifact：`XiaoNexus-V51.5-resident-candidate`，ID `13327885651`，大小 19,578,160 bytes。下载入口：https://github.com/jarod360/XiaoNexus/actions/runs/41836686083。
+- CI 成功只证明代码通过该工作流并生成候选包，不代表设备 TLS 认证或语音功能已验收。
+
+### V51.5 验收门槛
+
+1. 等待 PR #5 最新提交的 resident-candidate CI 成功；下载同一次 run 的完整 artifact，不能与旧 run18 / V51.4 包混用。
+2. 先核对 ZIP 外层 SHA256，再核对包内 `SHA256SUMS`；所有 Windows 下载、解压与备份放在 `D:\\Codex`。
+3. 设备继续保持 `/data/adb/xiaonexus/disabled` 存在；暂存后只读核对设备 manifest 与本地包一致。
+4. 确认日志依次出现 `ANDROID_DNS_READY`、`ANDROID_CA_STORE_READY`、`AGENT_LAUNCH_REQUESTED`。
+5. 确认 `agent-last.log` 不再出现 DNS 或 x509 错误，小米认证成功，Agent 监听 `127.0.0.1:18765`，Supervisor 达到 `READY_PASS_ALL`。
+6. 先做一条低风险拒答接管，再分别验证原生设备控制、音乐、门铃优先、DeepSeek 播报与禁用回退。任何一项失败先 `-Disable`，保留日志与备份，不要反复自动激活。
+
+**当前设备保持禁用。** PR/CI 成功只代表候选代码可构建；只有上述实机检查完成，才能把 V51.5 标记为设备验收通过。
