@@ -2,7 +2,7 @@
 
 针对小米带屏音箱 **LX04（Android 8.1 / ARMv7）** 的原厂语音与 DeepSeek 接管项目。原厂继续负责唤醒、ASR、正常知识问答、米家设备控制和音乐；仅在匹配原厂明确拒答，或用户显式请求补充上轮知识回答时，才尝试将对应对话交给 DeepSeek。**不重签原厂 APK、不发送 BACK、不做全局静音。**
 
-> **实机状态（2026-11-04 19:21）：设备已手动禁用 XiaoNexus，原厂小爱继续运行；本轮新 Agent 启动因 DNS 环境未配置而认证失败，尚未完成修复验收。** Android 已从路由器获得 `net.dns1=192.168.0.254`，系统解析器能解析 `account.xiaomi.com`；Go Agent 却尝试访问 `[::1]:53`。PR #4 已合并到 main，CI run #18 通过并生成新候选包（artifact ID 13317975886）；自动读取 Android DNS 的修复尚未部署到设备。新版源码/CI 不等于设备已验收。
+> **实机状态（2026-11-04 21:10）：设备已手动禁用 XiaoNexus，原厂小爱继续运行；当前无 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；后续 20:58 Agent 已不再报 `[::1]:53`，而是在访问小米认证服务时出现 `x509: certificate signed by unknown authority`。设备 `/system/etc/security/cacerts` 存在且含 135 个文件，常驻脚本此前未向 Go Agent 指定 Android CA 目录。PR #5 在同一修复分支加入进程级 `SSL_CERT_DIR`，并将版本升级为 V51.5；CI/候选包尚待本次版本提交重新构建。**不关闭 TLS 校验、不修改系统证书、不激活旧 V51.4 包。**
 
 ## 已确认的实机结果
 
@@ -24,7 +24,7 @@
 - 原厂：`com.xiaomi.micolauncher`，不修改 APK。
 - 设备端新版：`/data/adb/xiaonexus/bin/`、`frida/`、`resident/`；常驻启动入口为 `/data/adb/service.d/xiaonexus.sh`。必须使用官方 **Frida 16.6.6 android-arm**，不用 Frida 17。
 - 常驻控制：先串行执行独立、受限的 **EFS 一次性恢复**，再启动 `xiaonexus-supervisor --enable`。两个阶段不同时附加；连续失败设定熔断。禁用开关是 `/data/adb/xiaonexus/disabled`，恢复前需排查原因。
-- Agent 启动前从 Android DHCP 下发的 `net.dns1`…`net.dns4` 自动选择有效 DNS，设置进程级 `XIAOBOT_DNS_SERVER`；不写死网关/IP、不修改 Android 全局 DNS。没有有效 DNS 时等待并重试，不带着 `[::1]:53` 启动。该修复已合并并通过 CI，仍需实机验收。
+- Agent 启动前从 Android DHCP 下发的 `net.dns1`…`net.dns4` 自动选择有效 DNS，设置进程级 `XIAOBOT_DNS_SERVER`；不写死网关/IP、不修改 Android 全局 DNS。V51.5 同时为 Go Agent 设置进程级 `SSL_CERT_DIR=/system/etc/security/cacerts`，并在存在时追加 Android 用户 CA 目录；保持 TLS 证书验证，不改系统证书。PR #5/CI 与设备验收状态见当前交接文档。
 - EFS 方案只针对**这一台 LX04 的真实原厂 APK**验证；`EFS_FLAGS_CONFIRMED` 不是所有友盟/UC/PA 采集或上报停止的证明，也不能推定所有小爱型号都有相同错误。
 - DeepSeek 接收器仅监听 `127.0.0.1:18765`；私有 Token、账号、原始 ASR、日志和备份不得提交公开仓库。
 - Windows 开发/下载/备份均在 `D:\Codex`；不要在 C 盘新增项目文件。
@@ -32,7 +32,8 @@
 ## 文档与操作
 
 - **[CURRENT_STATE.md](docs/CURRENT_STATE.md)**：最新实机进度与未完成验证；后续开发从这里开始。
-- [V51.4 常驻与 EFS 专项交接](docs/RESIDENT_EFS_V51_4_HANDOFF.md)：实现、状态码、安装/停用、清理记录与限制。
+- [V51.5 常驻候选交接](docs/RESIDENT_EFS_V51_5_HANDOFF.md)：本轮 DNS/CA 修复、构建产物、部署门槛与回退步骤。
+- [V51.4 常驻与 EFS 历史交接](docs/RESIDENT_EFS_V51_4_HANDOFF.md)：保留此前实现、状态码和历史测试记录。
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md)：OEM 事件链、dialogId、PCM Owner、拒答话术。
 - [AUTO_BRIDGE.md](docs/AUTO_BRIDGE.md)：原厂事件到 Supervisor/Frida 的关联。
 - [VALIDATION.md](docs/VALIDATION.md)：历史验收范围和反例。
@@ -44,4 +45,4 @@
 
 ## 版本原则
 
-`V51.4` 是**常驻测试版**。只有拒答、上下文、原生功能、门铃、异常恢复、重启与回退经过实机验证，才考虑发布 `V52` 稳定版。本项目与小米、DeepSeek 无官方关联。
+`V51.5` 是**常驻测试候选版**，不是稳定版；当前设备仍保持禁用，候选包必须通过 CI、SHA256 核验和分阶段实机验收。只有拒答、上下文、原生功能、门铃、异常恢复、重启与回退经过实机验证，才考虑发布 `V52` 稳定版。本项目与小米、DeepSeek 无官方关联。
