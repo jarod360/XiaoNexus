@@ -14,9 +14,9 @@
 | 拒答授权 | Supervisor 日志记录 **5 次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`**，不能单凭授权日志推定每次 DeepSeek TTS 均完成 |
 | 旧版退役 | 旧 `/data/adb/lx04-deepseek/`、`/data/adb/service.d/lx04-deepseek.sh` 和已确认的 V53 旧 Frida 实验目录已通过定点清理脚本删除；设备返回 `LEGACY_SCOPED_RETIREMENT_COMPLETE` |
 | 退役备份 | 原始旧版归档保留于 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`；SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b` |
-| 门铃守护 | 原有 Doorbell Agent 逻辑未改动，仍查询 `127.0.0.1:7979/state`、识别 `doorbell-shared-live` 并优先门铃；**本轮尚未提供真实按铃验收结果** |
+| 门铃优先与漏答根因 | 实机只读采样：`18:07:27 IDLE/ready=True`，`18:07:30` 起 `ACTIVE/ready=False`；用户确认画面约 60 秒。源码另有 8 秒 hold，原 Supervisor 每 30 秒重试，解释了约 90 秒接管空窗。修复已合并到 main（PR #2 / `2d56ad9`），CI #11 全通过；**尚未部署到设备** |
 
-**仍待验证：** 实机开机重启自动附加、OEM PID 变更后的重附加、长期运行及资源占用、门铃抢占、网络/异常断链熔断、长回答、所有拒答变体，以及“原厂播报中途请求 DeepSeek 补充”的偶发漏拦截。后者短测 **3 次有 1 次漏拦**，现已增加 `ARMEXP` 上下文与失败原因脱敏日志，**未宣布根因或修复已完成**。
+**仍待验证：** 本次门铃生命周期修复的实机部署与按铃验收、实机开机重启自动附加、OEM PID 变更后的重附加、长期运行及资源占用、网络/异常断链熔断、长回答、所有拒答变体，以及“原厂播报中途请求 DeepSeek 补充”的偶发漏拦截。短测曾 **3 次有 1 次漏拦**；门铃造成的 Supervisor 反复退出已在源码层修复，但设备端尚未升级，不能标记实机问题已解决。
 
 ## 当前部署与安全边界
 
