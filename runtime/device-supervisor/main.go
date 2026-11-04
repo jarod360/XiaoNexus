@@ -261,15 +261,15 @@ func parseGate(line string)(string,bool){
  return strings.ToLower(msg.Payload.DialogID),true
 }
 func run(ctx context.Context,injector,script string,enable bool,c *client)error{
- if !c.healthy(){return errors.New("answer receiver unhealthy; no injection")}
+ initial,ok:=c.status()
+ if !ok||!initial.alive(){return errors.New("answer receiver unavailable; no injection")}
  pid,err:=oemPID();if err!=nil{return err}
  ctx,cancel:=context.WithCancel(ctx);defer cancel()
  inject:=exec.CommandContext(ctx,injector,"-p",strconv.Itoa(pid),"-s",script,"-i")
  stdout,err:=inject.StdoutPipe();if err!=nil{return err}
  stdin,err:=inject.StdinPipe();if err!=nil{return err}
- inject.Stderr=io.Discard // never store potentially sensitive OEM output
+ inject.Stderr=io.Discard
  if err:=inject.Start();err!=nil{return err}
- // Any later logcat/pipe failure must also detach the injector.
  defer func(){cancel();_ = stdin.Close();_ = inject.Process.Kill();_ = inject.Wait()}()
  logcat:=exec.CommandContext(ctx,"/system/bin/logcat","-v","raw","-T","1","MICO.cap:I","*:S")
  logOut,err:=logcat.StdoutPipe();if err!=nil{return err}
@@ -281,55 +281,95 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  go scanLines(ctx,logOut,events,"log")
  r:=newRouter(time.Now)
  ready:=false
- tick:=time.NewTicker(5*time.Second);defer tick.Stop()
+ // The JS gate starts BLOCKED. It may only be unblocked after both the
+ // hook and the receiver report route readiness.
+ routingBlocked:=true
+ setRoutingBlocked:=func(blocked bool){
+  if !enable||blocked==routingBlocked{return}
+  command:="UNBLOCK\n"
+  if blocked{command="BLOCK\n"}
+  if _,e:=io.WriteString(stdin,command);e!=nil{
+   log.Print("XIAONEXUS_ROUTING_CONTROL_WRITE_FAILED")
+   return
+  }
+  routingBlocked=blocked
+  if blocked{log.Print("XIAONEXUS_ROUTING_BLOCKED_PASS_ALL")}else{log.Print("XIAONEXUS_ROUTING_RESUMED")}
+ }
+ blockNow:=func(){
+  if !enable{return}
+  _,_ = io.WriteString(stdin,"BLOCK\n")
+  routingBlocked=true
+ }
+ refreshRoute:=func(){
+  status,ok:=c.status()
+  if !ok||!status.routeReady(){setRoutingBlocked(true);return}
+  setRoutingBlocked(false)
+ }
+ if enable&&!initial.routeReady(){log.Print("XIAONEXUS_ROUTING_BLOCKED_INITIAL_PASS_ALL")}
+ tick:=time.NewTicker(time.Second);defer tick.Stop()
  for {
   select {
   case <-ctx.Done():return nil
   case <-tick.C:
    current,e:=oemPID()
-   if e!=nil || current!=pid{return errors.New("OEM PID changed; detach and fail-open")}
-   if !c.healthy() && enable{
-    // The target script itself has strict 45s one-shot expiry.
-    // On receiver failure stop this entire attach session immediately.
-    return errors.New("answer receiver unavailable; detach and fail-open")
-   }
+   if e!=nil||current!=pid{return errors.New("OEM PID changed; detach and fail-open")}
+   if enable&&ready{refreshRoute()}
   case ev:=<-events:
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
     if id,accepted,ok:=parseArmResult(ev.value);ok {
-     mode:="REFUSAL";if d:=r.dialogs[id];d!=nil && d.expand{mode="EXPAND"}
+     mode:="REFUSAL";if d:=r.dialogs[id];d!=nil&&d.expand{mode="EXPAND"}
      state:="REJECTED";if accepted{state="ACCEPTED"}
      log.Printf("XIAONEXUS_ARM_%s_%s dialog8=%s",mode,state,id[:8]);continue
     }
     if reason,ok:=parseArmReason(ev.value);ok{log.Print("XIAONEXUS_ARM_REASON:",reason);continue}
-    if ev.value=="XIAONEXUS_READY"{ready=true;log.Print("XiaoNexus injector READY_PASS_ALL");continue}
+    if ev.value=="XIAONEXUS_READY"{
+     ready=true
+     log.Print("XiaoNexus injector READY_PASS_ALL")
+     if enable{refreshRoute()}
+     continue
+    }
     if strings.Contains(ev.value,`"type":"error"`){return errors.New("Frida JavaScript exception")}
     if id,ok:=parseGate(ev.value);ok{
-     if !enable || !c.healthy(){return errors.New("gate accepted but receiver not ready")}
+     if !enable{continue}
+     status,statusOK:=c.status()
+     if !statusOK||!status.routeReady(){
+      blockNow()
+      log.Print("XIAONEXUS_GATE_BLOCKED_PASS_ALL")
+      continue
+     }
      a:=r.gate(id)
      if a.kind=="" {
-      if d:=r.dialogs[id];d!=nil && d.expand && r.clock().Sub(d.at)>12*time.Second {
+      if d:=r.dialogs[id];d!=nil&&d.expand&&r.clock().Sub(d.at)>12*time.Second{
        log.Print("XIAONEXUS_EXPAND_GATE_TIMEOUT")
-      } else {log.Print("XIAONEXUS_GATE_UNMATCHED")}
+      }else{log.Print("XIAONEXUS_GATE_UNMATCHED")}
+      blockNow()
       continue
      }
      if a.kind=="expand"{log.Print("XIAONEXUS_EXPAND_GATE_ACCEPTED")}
-     if (a.kind=="refusal"||a.kind=="expand") && !c.submit(a){
-      return errors.New("accepted PCM gate but DeepSeek request failed")
+     if (a.kind=="refusal"||a.kind=="expand")&&!c.submit(a){
+      blockNow()
+      log.Print("XIAONEXUS_RECEIVER_SUBMIT_FAILED_PASS_ALL")
+      continue
      }
     }
    } else if ev.kind=="oem" {
     a:=r.feed(ev.inst)
-    if ev.inst.kind=="knowledge" && r.previous!=nil && r.previous.dialogID==ev.inst.id {
+    if ev.inst.kind=="knowledge"&&r.previous!=nil&&r.previous.dialogID==ev.inst.id{
      log.Printf("XIAONEXUS_EXPAND_KNOWLEDGE_SAVED dialog8=%s",ev.inst.id[:8])
     }
     if a.kind==""||!ready||!enable{continue}
-    if a.kind=="arm" || a.kind=="arm_expand"{
+    if a.kind=="arm"||a.kind=="arm_expand"{
      if a.kind=="arm_expand"{log.Printf("XIAONEXUS_EXPAND_ARM_REQUESTED dialog8=%s",a.id[:8])}
-     if !c.healthy(){continue}
+     if routingBlocked{continue}
+     status,statusOK:=c.status()
+     if !statusOK||!status.routeReady(){blockNow();continue}
      command:="ARM "
      if a.kind=="arm_expand"{command="ARMEXP "}
-     _,_ = io.WriteString(stdin,command+a.id+"\n")
+     if _,e:=io.WriteString(stdin,command+a.id+"\n");e!=nil{
+      blockNow()
+      log.Print("XIAONEXUS_ARM_WRITE_FAILED_PASS_ALL")
+     }
     }
     if a.kind=="expand_unavailable"{log.Print("XIAONEXUS_EXPAND_CONTEXT_MISSING")}
    }
