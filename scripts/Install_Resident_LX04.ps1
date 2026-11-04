@@ -147,7 +147,7 @@ foreach ($entry in $map) {
     Root ('cp ' + $temp + ' ' + $entry[1] + '.new && chmod ' + $entry[2] + ' ' + $entry[1] + '.new && mv ' + $entry[1] + '.new ' + $entry[1] + ' && rm -f ' + $temp) | Out-Null
 }
 $manifestHash = (Get-FileHash -LiteralPath $checksums -Algorithm SHA256).Hash.ToLowerInvariant()
-Root ("printf '%s\\n' '" + $manifestHash + "' > /data/adb/xiaonexus/resident/staged-package.sha256 && chmod 600 /data/adb/xiaonexus/resident/staged-package.sha256") | Out-Null
+Root ("printf '%s\n' '" + $manifestHash + "' > /data/adb/xiaonexus/resident/staged-package.sha256 && chmod 600 /data/adb/xiaonexus/resident/staged-package.sha256") | Out-Null
 Write-Host "DEVICE_STAGE_MANIFEST=$manifestHash"
 Write-Host "RESIDENT_STAGED; OEM_PID=$oem; legacy preserved"
 Write-Host "Staged only; review the device files, then run this exact package with -Activate."
