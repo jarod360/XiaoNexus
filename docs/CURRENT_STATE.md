@@ -1,6 +1,6 @@
 # XiaoNexus LX04：当前实机状态（2026-11-04）
 
-> **当前状态（2026-11-04 21:10）：XiaoNexus 已手动禁用，原厂小爱仍运行；设备没有 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；20:58 的 Agent 启动日志已越过 DNS 阶段，但 TLS 报 `x509: certificate signed by unknown authority`。设备系统 CA 目录 `/system/etc/security/cacerts` 有 135 个文件，resident.sh 原先没有设置 `SSL_CERT_DIR`。PR #5 已加入进程级 Android CA 路径；本次版本升级为 V51.5，CI 与新候选包待验证，设备尚未部署。本文优先记录用户 LX04 的现场证据；项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
+> **当前状态（2026-11-04 21:18）：XiaoNexus 已手动禁用，原厂小爱仍运行；设备没有 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；20:58 Agent 启动已越过 DNS 阶段，但 TLS 报 `x509: certificate signed by unknown authority`。设备系统 CA 目录 `/system/etc/security/cacerts` 有 135 个文件，resident.sh 原先没有设置 `SSL_CERT_DIR`。PR #5 已加入进程级 Android CA 路径并将版本升级为 V51.5；GitHub Actions run #22 已成功，生成 artifact `XiaoNexus-V51.5-resident-candidate`（ID `13327885651`）。设备尚未部署，继续保持 disabled。本文优先记录用户 LX04 的现场证据；项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
 
 ## 当前实机运行
 
@@ -166,7 +166,9 @@ runtime/device-agent/main.go 调用 runtimeenv.ConfigureDNSFromEnv()。该函数
 - 若 `/data/misc/keychain/certs-added` 存在，则追加为第二个目录；不存在时不报错。
 - 不关闭 TLS 验证、不使用 insecure skip verify、不下载或安装证书、不修改 Android 系统分区、不改 Agent 二进制。
 - 本次版本源为根目录 `VERSION=V51.5`；构建将生成 Standard 与 Doorbell 两个 ARMv7 包，候选 artifact 名称为 `XiaoNexus-V51.5-resident-candidate`。
-- 目前 PR/CI 尚未完成，本段仅描述源码候选，不代表构建或设备验收通过。
+- GitHub Actions run #22：**success**，完整执行 Frida 回归、Shell/PowerShell 语法、两个 ARMv7 构建、Go tests 与 artifact 上传。
+- Artifact：`XiaoNexus-V51.5-resident-candidate`，ID `13327885651`，大小 19,578,160 bytes。下载入口：https://github.com/jarod360/XiaoNexus/actions/runs/41836686083。
+- CI 成功只证明代码通过该工作流并生成候选包，不代表设备 TLS 认证或语音功能已验收。
 
 ### V51.5 验收门槛
 
