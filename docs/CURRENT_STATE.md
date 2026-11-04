@@ -10,7 +10,7 @@
 | 原厂 | `com.xiaomi.micolauncher` PID **4119**，用户最后一次 `ps` 为休眠状态（非 `ptrace_stop`）；`:miot` PID **4155** |
 | 当前新版语音 | 2026-11-04 19:21 已执行 `-Disable`；最新 `ps` 仅有 OEM PID **4119** 与 `:miot` PID **4155**，无 `xiaonexus-*` / `frida-*` 进程 |
 | V51.4 常驻启动 | 16:55 首轮曾成功启动并出现 `READY_PASS_ALL`；19:13 再次激活后，19:14 `EFS_FLAGS_CONFIRMED`、`AGENT_LAUNCH_REQUESTED`，但 Agent 认证失败、Supervisor 立即退出。19:21 已禁用，不能把早先成功状态当作当前运行状态 |
-| Frida 状态 | Supervisor 日志 `XiaoNexus injector READY_PASS_ALL`，以及 **5 条** `XIAONEXUS_ARM_REFUSAL_ACCEPTED`，说明五次拒答授权接受；**尚未逐次验证 DeepSeek 播报成功** |
+| 此前 Frida 状态（16:55 成功轮次） | Supervisor 日志 `XiaoNexus injector READY_PASS_ALL`，以及 **5 条** `XIAONEXUS_ARM_REFUSAL_ACCEPTED`，说明五次拒答授权接受；**尚未逐次验证 DeepSeek 播报成功** |
 | EFS 历史实测 | 定点 `/apm_cc` 一次性修复后，10 秒 `efs-base` CPU **939→1 ticks**、写调用 **17,251→1**，PID 没变。本次 V51.4 常驻日志已确认标志设为 false，**仍需新取 /proc 数据证实持续低负载** |
 | 旧版清理 | 用户运行 `Retire_Legacy_LX04.ps1 -Commit`，设备输出 `LEGACY_SCOPED_RETIREMENT_COMPLETE`。旧 `lx04-deepseek`、旧开机入口、已指定 V53 Frida 实验目录按精确路径清理 |
 | D 盘备份 | `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`，SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`；安装前两份 Supervisor/Gate 备份也保留 |
