@@ -5,24 +5,25 @@ Only the root/ADB preflight is safe before the old XiaoSeek is stopped. A succes
 
 ## 1. Download an artifact
 
-Open https://github.com/jarod360/XiaoNexus/actions/workflows/preview-variants.yml and choose the **latest successful** run for the current VERSION (V51.1 at the time of this document). In the Artifacts section download **XiaoNexus-V51.1-test-build**. GitHub may require signing in to download an Actions artifact.
+Open https://github.com/jarod360/XiaoNexus/actions/workflows/preview-variants.yml and choose the **latest successful** run for the current VERSION (V51.2 at the time of this document). In the Artifacts section download **XiaoNexus-V51.2-test-build**. GitHub may require signing in to download an Actions artifact.
 
-Save the outer ZIP under D:\Codex\XiaoNexus\V51.1\downloads. Do not write user artifacts to C:.
+Save the outer ZIP under D:\Codex\XiaoNexus\V51.2\downloads. Do not write user artifacts to C:.
 
 ## 2. Extract the personal Doorbell bundle (or Standard)
 
 ~~~powershell
-$base = 'D:\Codex\XiaoNexus\V51.1'
+$base = 'D:\Codex\XiaoNexus\V51.2'
 New-Item -ItemType Directory -Force "$base\downloads", "$base\unzipped", "$base\doorbell", 'D:\Codex\tmp' | Out-Null
 $env:TEMP = 'D:\Codex\tmp'
 $env:TMP = 'D:\Codex\tmp'
 # Place the downloaded Actions artifact here with this name:
-$outer = "$base\downloads\XiaoNexus-V51.1-test-build.zip"
+$outer = "$base\downloads\XiaoNexus-V51.2-test-build.zip"
 Expand-Archive -LiteralPath $outer -DestinationPath "$base\unzipped" -Force
-$inner = "$base\unzipped\XiaoNexus-V51.1-LX04-doorbell-armv7.tar.gz"
+$inner = "$base\unzipped\XiaoNexus-V51.2-LX04-doorbell-armv7.tar.gz"
 tar -xzf $inner -C "$base\doorbell"
 Set-Location "$base\doorbell"
 Get-Content .\VERSION
+# New archives place programs under bin/ and all Frida code under frida/
 # Verify every packaged binary and script against the included hashes:
 Get-Content .\SHA256SUMS | ForEach-Object {
     if ($_ -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') { throw 'Invalid checksum record' }
@@ -60,4 +61,17 @@ Neither class can trigger if the previous dialog is missing, unrelated, or older
 
 ## Version rules
 
-V51.1, V51.2, etc are incrementally tested preview builds. V52 is reserved for the final real-device accepted release; don't rebrand a preview or a successful CI as V52.
+V51.2, V51.2, etc are incrementally tested preview builds. V52 is reserved for the final real-device accepted release; don't rebrand a preview or a successful CI as V52.
+
+
+## Directory standardization and old-install audit
+
+V51.2 bundles are already separated into `bin/` and `frida/`. On the device, the only authorized new install root is `/data/adb/xiaonexus/`; place the separately downloaded official Frida 16.6.6 Android ARM `frida-inject` in `/data/adb/xiaonexus/frida/frida-inject`, and keep the gate JS next to it. The new supervisor defaults to these precise paths. **Do not move the existing frida-server process while it is running; do not delete the legacy files during this first acceptance test.**
+
+To audit old paths safely after unpacking, run from the package root:
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Audit_Legacy_XiaoSeek.ps1 -Device '192.168.0.192:5555'
+~~~
+
+Audit reads only directory presence, process names, and matching startup script filenames; it does not show token contents or delete anything. The retirement checklist is in [LEGACY_RETIREMENT.md](LEGACY_RETIREMENT.md). Always archive the old installation to `D:\Codex` and verify recovery before deletion.

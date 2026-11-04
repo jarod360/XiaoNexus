@@ -59,3 +59,8 @@
 ## V51.1 offline scope
 
 The historical OEM samples demonstrate that Template.General can represent both knowledge (skill_icon.description=智能问答) and calculator (skill_icon.description=计算器). Go and Python routers now guard this field and reject unknown categories. The official frida/frida 16.6.6 inject.vala source documents stdin/onFridaStdin and stdout message support; no LX04 execution of the autonomous on-device injector has yet been recorded. Two candidate Release archives include an ARMv7 supervisor; these are not certified one-click replacements for XiaoSeek.
+
+
+## V51.2 filesystem and retirement audit
+
+The default on-device Frida injector/script paths are restricted to `/data/adb/xiaonexus/frida/`. Both Standard and Doorbell test archives now arrange executables in `bin/` and the Frida gate script in `frida/`. A separate read-only legacy-install audit is added. The audit only reports existence/processes/boot script references; it never deletes files. Final old-Agent cleanup is **not** yet performed on the physical LX04 and must not be claimed as complete.

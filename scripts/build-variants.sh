@@ -22,10 +22,12 @@ for flavor in standard doorbell; do
   fi
   PKG="$OUT/package-$flavor"
   mkdir -p "$PKG"
-  cp "$OUT/xiaonexus-$flavor-armv7" "$PKG/xiaonexus-agent"
-  cp "$OUT/xiaonexus-supervisor-armv7" "$PKG/xiaonexus-supervisor"
-  cp "$OUT/lx04_nexus_gate.js" "$PKG/lx04_nexus_gate.js"
+  mkdir -p "$PKG/bin" "$PKG/frida"
+  cp "$OUT/xiaonexus-$flavor-armv7" "$PKG/bin/xiaonexus-agent"
+  cp "$OUT/xiaonexus-supervisor-armv7" "$PKG/bin/xiaonexus-supervisor"
+  cp "$OUT/lx04_nexus_gate.js" "$PKG/frida/lx04_nexus_gate.js"
   cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
+  cp "$ROOT/scripts/Audit_Legacy_XiaoSeek.ps1" "$PKG/Audit_Legacy_XiaoSeek.ps1"
   printf '%s\n' "$VERSION" > "$PKG/VERSION"
   printf '%s\n' \
     "XiaoNexus $VERSION $flavor ARMv7 experimental build" \
@@ -35,7 +37,7 @@ for flavor in standard doorbell; do
     '4. The new supervisor defaults to observe-only; no real LX04 autonomous takeover is verified.' \
     '5. Do not run both old and new agents simultaneously; test with a rollback path.' \
     > "$PKG/README_TEST.txt"
-  (cd "$PKG" && sha256sum xiaonexus-agent xiaonexus-supervisor lx04_nexus_gate.js > SHA256SUMS)
+  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js > SHA256SUMS)
   tar -czf "$OUT/XiaoNexus-$VERSION-LX04-$flavor-armv7.tar.gz" -C "$PKG" .
 done
 cd "$OUT"

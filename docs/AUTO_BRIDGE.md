@@ -111,3 +111,24 @@ The script reads Android SDK/ABI, the main OEM PID (not :miot), current old Agen
 ## No-Git distribution
 
 The device binaries are supplied as V51.x GitHub Actions download artifacts. Windows does not need Git or Go to extract and perform read-only preflight. See [NO_GIT_TEST.md](NO_GIT_TEST.md). Versions below stable V52 are experimental and the old XiaoSeek installation must remain recoverable.
+
+
+## V51.2 standardized filesystem layout
+
+**One installed root only**, keeping optional personal doorbell logic inside the agent binary:
+
+~~~text
+/data/adb/xiaonexus/       (mode 0700)
+  bin/xiaonexus-agent
+  bin/xiaonexus-supervisor
+  frida/frida-inject        (official 16.6.6 android-arm; separately obtained)
+  frida/lx04_nexus_gate.js
+  config.json              (private)
+  .mi.token                (private)
+  control.token            (private, 0600)
+  supervisor.lock
+~~~
+
+No XiaoNexus component should be installed under `/data/local/tmp`, and no additional XiaoNexus `frida-server` is required by the new device-local injector. Existing `/data/local/tmp/xiaoseek_v53_phase_a/frida-server` remains a *legacy* test asset until it is proven unused and safely retired. Frida's two installed files are kept together under `/data/adb/xiaonexus/frida/` rather than the root.
+
+Audit old XiaoSeek paths and resident processes with the V51.2 packaged `Audit_Legacy_XiaoSeek.ps1` (read-only). Never remove old files until the new candidate passes full refusal, expansion, native controls, doorbell, reboot and rollback acceptance. Final decommissioning is documented in [LEGACY_RETIREMENT.md](LEGACY_RETIREMENT.md).

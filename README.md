@@ -125,3 +125,6 @@ Last-answer expansion accepts only the immediately preceding OEM Template.Genera
 The release/test version is read from [VERSION](VERSION). During development we ship **V51.1, V51.2, ...** only. **V52** is reserved for an actual tested stable release after LX04 on-device attach, automatic refusal handoff, opt-in expansion, normal commands, doorbell, reboot and rollback have all passed. Historical internal Frida experiment numbers do not imply a public release.
 
 **No local Git is needed:** download the [latest successful Actions artifact](../../actions/workflows/preview-variants.yml), extract a Standard or Doorbell archive to `D:\Codex`, verify SHA256 and run the read-only preflight. Full [no-Git instructions](docs/NO_GIT_TEST.md). Active device takeover remains unverified and old XiaoSeek must be retained for recovery.
+
+
+**V51.2 device layout:** Frida now has a single `/data/adb/xiaonexus/frida/` directory (`frida-inject` and the gate JS). The new agent/supervisor are under `bin/`; private config remains under the XiaoNexus root. The old XiaoSeek and its `/data/local/tmp` Frida experiments are never removed automatically. Use the packaged read-only audit and [legacy retirement checklist](docs/LEGACY_RETIREMENT.md) only after new functionality and rollback are verified.

@@ -7,7 +7,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 # Accept either a downloaded release bundle or the source tree.
-if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'xiaonexus-agent') -PathType Leaf) {
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'bin\xiaonexus-agent') -PathType Leaf) {
+    $root = (Resolve-Path $PSScriptRoot).Path
+    $required = @('bin\xiaonexus-agent', 'bin\xiaonexus-supervisor', 'frida\lx04_nexus_gate.js', 'SHA256SUMS', 'VERSION')
+} elseif (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'xiaonexus-agent') -PathType Leaf) {
     $root = (Resolve-Path $PSScriptRoot).Path
     $required = @('xiaonexus-agent', 'xiaonexus-supervisor', 'lx04_nexus_gate.js', 'SHA256SUMS', 'VERSION')
 } else {

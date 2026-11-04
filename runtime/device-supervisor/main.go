@@ -302,8 +302,8 @@ func singleton(path string)(*os.File,error){
  return lock,nil
 }
 func main(){
- var injector=flag.String("injector","/data/adb/xiaonexus/frida-inject","official Frida 16.6.6 Android ARM binary")
- var script=flag.String("script","/data/adb/xiaonexus/lx04_nexus_gate.js","pinned XiaoNexus JavaScript")
+ var injector=flag.String("injector","/data/adb/xiaonexus/frida/frida-inject","official Frida 16.6.6 Android ARM binary")
+ var script=flag.String("script","/data/adb/xiaonexus/frida/lx04_nexus_gate.js","pinned XiaoNexus JavaScript")
  var tokenPath=flag.String("token","/data/adb/xiaonexus/control.token","owner-only receiver token")
  var enable=flag.Bool("enable",false,"enable real refusal PCM gating; default OBSERVE ONLY")
  flag.Parse()
