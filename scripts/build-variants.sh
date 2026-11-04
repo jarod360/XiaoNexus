@@ -28,6 +28,7 @@ for flavor in standard doorbell; do
   cp "$OUT/lx04_nexus_gate.js" "$PKG/frida/lx04_nexus_gate.js"
   cp "$ROOT/runtime/device-resident/"*.sh "$ROOT/runtime/device-resident/"*.js "$PKG/resident/"
   cp "$ROOT/scripts/Install_Resident_LX04.ps1" "$PKG/Install_Resident_LX04.ps1"
+  cp "$ROOT/scripts/Retire_Legacy_LX04.ps1" "$PKG/Retire_Legacy_LX04.ps1"
   cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
   cp "$ROOT/scripts/Audit_Legacy_XiaoSeek.ps1" "$PKG/Audit_Legacy_XiaoSeek.ps1"
   printf '%s\n' "$VERSION" > "$PKG/VERSION"
@@ -39,7 +40,7 @@ for flavor in standard doorbell; do
     '4. Resident service is OPT-IN; review Install_Resident_LX04.ps1 and use -Activate.' \
     '5. Preserve old install until reboot, failure recovery and rollback are independently verified.' \
     > "$PKG/README_TEST.txt"
-  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 > SHA256SUMS)
+  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 Retire_Legacy_LX04.ps1 > SHA256SUMS)
   tar -czf "$OUT/XiaoNexus-$VERSION-LX04-$flavor-armv7.tar.gz" -C "$PKG" .
 done
 cd "$OUT"
