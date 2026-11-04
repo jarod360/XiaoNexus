@@ -2,7 +2,7 @@
 
 针对小米带屏音箱 **LX04（Android 8.1 / ARMv7）** 的原厂语音与 DeepSeek 接管项目。原厂继续负责唤醒、ASR、正常知识问答、米家设备控制和音乐；仅在匹配原厂明确拒答，或用户显式请求补充上轮知识回答时，才尝试将对应对话交给 DeepSeek。**不重签原厂 APK、不发送 BACK、不做全局静音。**
 
-> **实机状态（2026-11-04 21:10）：设备已手动禁用 XiaoNexus，原厂小爱继续运行；当前无 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；后续 20:58 Agent 已不再报 `[::1]:53`，而是在访问小米认证服务时出现 `x509: certificate signed by unknown authority`。设备 `/system/etc/security/cacerts` 存在且含 135 个文件，常驻脚本此前未向 Go Agent 指定 Android CA 目录。PR #5 在同一修复分支加入进程级 `SSL_CERT_DIR`，并将版本升级为 V51.5；CI/候选包尚待本次版本提交重新构建。**不关闭 TLS 校验、不修改系统证书、不激活旧 V51.4 包。**
+> **实机状态（2026-11-04 21:18）：设备已手动禁用 XiaoNexus，原厂小爱继续运行；当前无 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；20:58 Agent 已越过 DNS 阶段，但 TLS 报 `x509: certificate signed by unknown authority`。PR #5 已加入进程级 Android `SSL_CERT_DIR`，并将版本升级为 V51.5。GitHub Actions run #22 已通过，生成候选 artifact `XiaoNexus-V51.5-resident-candidate`（ID `13327885651`）；**尚未部署到设备**。不关闭 TLS 校验、不修改系统证书、不激活旧 V51.4 包。
 
 ## 已确认的实机结果
 
