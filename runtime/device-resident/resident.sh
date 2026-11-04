@@ -34,6 +34,32 @@ log() {
   # Numeric states only. No ASR, URL, device credentials, or voice text.
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$logfile"
 }
+# Android 8.1 receives the active Wi-Fi DNS servers from DHCP.
+# Use the live net.dns properties; never assume the gateway is also DNS.
+# runtimeenv.ConfigureDNSFromEnv expects one literal IP:port.
+wait_for_android_dns() {
+  attempt=0
+  while [ "$attempt" -lt 60 ]; do
+    for property in net.dns1 net.dns2 net.dns3 net.dns4; do
+      dns_ip=$(/system/bin/getprop "$property" 2>/dev/null)
+      case "$dns_ip" in
+        ''|127.*|::1|0.0.0.0|::) continue ;;
+      esac
+      case "$dns_ip" in
+        *[!0-9A-Fa-f:.]*) continue ;;
+      esac
+      case "$dns_ip" in
+        *:*) XIAOBOT_DNS_SERVER="[$dns_ip]:53" ;;
+        *) XIAOBOT_DNS_SERVER="$dns_ip:53" ;;
+      esac
+      export XIAOBOT_DNS_SERVER
+      return 0
+    done
+    attempt=$((attempt+1))
+    sleep 2
+  done
+  return 1
+}
 cleanup() {
   [ -n "$child" ] && kill -15 "$child" 2>/dev/null
   current=$(cat "$pidfile" 2>/dev/null)
@@ -83,6 +109,14 @@ while [ ! -e "$disabled" ]; do
     exe=$(readlink /proc/"$agentpid"/exe 2>/dev/null)
     [ "$exe" = "$agent" ] || { log AGENT_PATH_MISMATCH; break; }
   else
+    # Wait for DHCP-provided Android DNS before the Go agent initializes
+    # Xiaomi authentication. Without this, Go may fall back to [::1]:53.
+    if ! wait_for_android_dns; then
+      log ANDROID_DNS_UNAVAILABLE_RETRY_LATER
+      sleep 30
+      continue
+    fi
+    log ANDROID_DNS_READY
     "$agent" > "$diag/agent-last.log" 2>&1 &
     log AGENT_LAUNCH_REQUESTED
     sleep 5
