@@ -87,3 +87,21 @@ The LX04 operator ran an **additional 60-second** OEM attachment window without 
 ### 60-second native-function observation: spoken checks confirmed
 
 Following the successful `NATIVE_OBSERVE_60S_COMPLETE` and post-attach cleanup, the LX04 operator confirmed the time, weather, and volume-control voice tasks behaved normally during the OBSERVE_ONLY window. This is a user-observed native speech/control compatibility pass, **not** a controlled real-refusal/DeepSeek routing pass. The first `--enable` targeted trial is still pending; do not retire old XiaoSeek or its backup.
+
+## V51.2 real-device one-shot refusal takeover (2026-11-04)
+
+A real LX04 / Android 8.1 / ARMv7 test was run with the **V51.2 Doorbell** binary and on-device Frida 16.6.6, new answer agent already authenticated and old XiaoSeek disabled (its files and recovery path retained). The operator reported the exact control output:
+
+~~~text
+REFUSAL_PREFLIGHT_PASS
+REFUSAL_TEST_STARTING
+GATE_READY_SAY_ONE_QUERY_NOW
+GATE_ATTACH_READY_PASS
+GATE_PROCESS_CLEANUP_PASS
+DEEPSEEK_REFUSAL_TTS_LOG_COUNT=1
+REFUSAL_TEST_WINDOW_COMPLETE
+~~~
+
+**Direct user-observed outcome:** real refusal takeover worked; the short **“请稍后”** prompt appeared normally, DeepSeek took over successfully, speech was normal, and full-screen text display was normal. The operator also previously confirmed native time, weather, and volume commands worked normally in a 60-second observe-only window. The post-test check found no leftover *new* Supervisor or frida-inject process, and the OEM main PID remained unchanged.
+
+**Evidence boundary:** The grep count `DEEPSEEK_REFUSAL_TTS_LOG_COUNT=1` is a file-wide count, not a per-window delta or dialog-ID correlation proof. The user-observed takeover is the meaningful end-to-end confirmation for **one test question**; we have not yet collected complete per-session PCM counters (dropped/passed/EOF) for this V51.2 run, nor independently quantified original refusal audio leakage. This does **not** prove all eight refusal phrases, expansion of last OEM answer, doorbell popup preemption, long TTS, failure/retry behavior, unattended boot/re-attach or rollback. Preserve the old Agent, old Frida files, credentials and `D:\\Codex` backup, and do not call this V52 stable.
