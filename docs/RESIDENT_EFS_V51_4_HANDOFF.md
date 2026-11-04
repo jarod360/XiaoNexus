@@ -1,6 +1,16 @@
 # LX04 V51.4 常驻测试 + EFS 修复 + expand 诊断交接
 
-> 状态：**GitHub 候选分支，尚未在真实 LX04 部署或重启验收**。本文件描述部署、验证和回退，不把 CI 通过当作实机通过。历史基线来自用户 2026-11-04 实测。
+> 状态（2026-11-04）：**V51.4 已部署并激活常驻测试，冷重启和长期稳定仍未验收**。GitHub CI 与设备实测要分开记录。以下部署指令保留供重装/复现，不意味着需要立即再次执行。
+
+## 已完成的实机验收（最新记录）
+
+- **部署**：候选包 SHA256 通过，备份 `resident-pre-20261104-165351` 和 `resident-pre-20261104-165503`，八个设备端文件上传成功；用户运行 `-Activate` 后返回 `RESIDENT_ACTIVATION_REQUESTED`。
+- **启动链路**：`16:55:16 RESIDENT_START / EFS_ONCE_START` → `16:55:27 EFS_FLAGS_CONFIRMED / VOICE_SUPERVISOR_START` → `08:55:31 READY_PASS_ALL`（Supervisor 日志使用 UTC 时间显示）。用户后续 `ps` 原厂 PID 4119 为 `S`，Supervisor 27312、Frida 27322、Agent 32719 均在运行。
+- **拒答**：Supervisor 后续有五次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`；只是授权确认，并非每次 DeepSeek 已成功播报的直接证据。
+- **旧版退役**：按用户要求，已执行旧版定点备份和删除，回执 `LEGACY_SCOPED_RETIREMENT_COMPLETE`；备份文件 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`，SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`。原来要求“旧版本始终保留”的条款现为历史说明。
+- **边界**：现有 Doorbell Agent 未替换、门铃保护源码未修改；真实按铃抢占、三端弹窗、EFS 常驻后独立性能复测、OEM 重附加、整机冷重启、expand 偶发漏拦截仍需验证。
+
+
 
 ## 事实基线与本次目标
 
@@ -77,19 +87,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Codex\XiaoNexus\V51.
 
 ## 旧 XiaoSeek / 旧 Frida 退役（冷重启验证之后）
 
-**不允许在首次安装候选时直接删除旧版。** 先运行下面脚本的默认只备份模式：
+**首次安装时未立即删除；随后用户明确要求退役并在新常驻已启动后完成定点清理。以下命令保留用于复现，不要重复删除。** 先运行下面脚本的默认只备份模式：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Codex\XiaoNexus\V51.4\doorbell\Retire_Legacy_LX04.ps1"
 ```
 
-仅当冷重启后新常驻完整通过、已实际测试过 `-Disable`、原厂无误且旧 Agent 不在运行，才使用 `-Commit`；它会再创建一次经 SHA256 比对的本地 D 盘备份，然后核对设备的新版 Agent/Supervisor/注入器均存在、旧 `disabled` 有效、旧 `frida-server` 的 `/proc/PID/exe` 路径正确，最后删除且**仅删除**：
+历史建议为冷重启后才清理，但本次用户明确要求即刻清理，已由设备端状态检查与 D 盘 SHA256 备份保护后执行 `-Commit`；它会再创建一次经 SHA256 比对的本地 D 盘备份，然后核对设备的新版 Agent/Supervisor/注入器均存在、旧 `disabled` 有效、旧 `frida-server` 的 `/proc/PID/exe` 路径正确，最后删除且**仅删除**：
 
 - `/data/adb/lx04-deepseek/`
 - `/data/adb/service.d/lx04-deepseek.sh`
 - `/data/local/tmp/xiaoseek_v53_phase_a/`
 
-**不会删除** `/data/adb/xiaonexus/frida/frida-inject`（新版需要），也不会盲扫其他不同年代的 Frida 实验文件。若还存在其他旧脚本/二进制，先列出并逐项核实所有权。
+**本次未删除** `/data/adb/xiaonexus/frida/frida-inject`（新版需要），也不会盲扫其他不同年代的 Frida 实验文件。若还存在其他旧脚本/二进制，先列出并逐项核实所有权。
 
 ## 待验证、不能声称已解决
 
