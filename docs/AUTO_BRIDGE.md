@@ -9,7 +9,7 @@
 | Frida OEM Hook | `runtime/frida/lx04_nexus_gate.js` | Java Event / Speak / PCM Owner / Toast 按 `dialogId` 关联；默认 PASS ALL；仅授权且符合条件的非空拒答 PCM 丢弃；独立 Synthesize 和 EOF 放行 |
 | 设备端状态机 | `runtime/device-supervisor/main.go` | `parseOEM` 读取 `MICO.cap` 最终 ASR / `Template.General`；`router.feed` 保留上一轮知识；`router.gate` 按已授权同 ID 提交请求；`--enable` 才会发送 ARM |
 | DeepSeek 接收器 | `runtime/device-agent/main.go` | 仅 `127.0.0.1:18765`；256 位私有控制令牌；`/v1/health` 先检查回答引擎和门铃保护；`/v1/query` 对同轮仅接受一次 |
-| 门铃版保护 | `runtime/device-agent/doorbell.go` | 请求 `127.0.0.1:7979/state`，检测 `doorbell-shared-live`；窗口抢占/取消；接收器失败时不接管 |
+| 门铃版保护 | `legacy/XiaoSeek/client/cmd/lx04-agent/doorbell.go`（由 `scripts/prepare-legacy-variants.py` 复制并配合构建标记生成新 Agent） | 请求 `127.0.0.1:7979/state`，检测 `doorbell-shared-live`；窗口抢占/取消；接收器失败时不接管 |
 
 拒答链路：原厂最终 ASR → 记录该请求的 `dialogId` → 原厂回复若是八条精确拒答全文且 PCM Owner 来源/模式/状态全部安全 → 隐去对应拒答非空 PCM 并保留 EOF → Toast 精确替换“请稍后”（约 1.5 秒后请求关闭）→ 发送 `gate_accepted` → Device Agent 查询 DeepSeek → 原生 MIoT TTS + `BaikeTextActivity` 全屏。**没有 BACK、全局 master-mute、原厂 APK 修改。**
 
