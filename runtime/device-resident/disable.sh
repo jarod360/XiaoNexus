@@ -22,4 +22,12 @@ case "$pid" in
     exe=$(readlink /proc/"$pid"/exe 2>/dev/null)
     [ "$exe" = "$base/bin/xiaonexus-supervisor" ] && kill -15 "$pid" 2>/dev/null ;;
 esac
+# Cancel a pending DeepSeek answer too; otherwise TTS could outlive the hook.
+pid=$(pidof xiaonexus-agent)
+case "$pid" in
+  ''|*' '*) ;;
+  *)
+    exe=$(readlink /proc/"$pid"/exe 2>/dev/null)
+    [ "$exe" = "$base/bin/xiaonexus-agent" ] && kill -15 "$pid" 2>/dev/null ;;
+esac
 echo XIAONEXUS_RESIDENT_DISABLED
