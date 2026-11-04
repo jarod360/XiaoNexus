@@ -58,32 +58,76 @@
 - `runtime/device-resident/retire_legacy.sh`：仅触及已确认的旧路径，不扫全系统。
 - `.github/workflows/resident-candidate.yml`：PR 上检查 JS/Go/PowerShell/sh 并构建 ARMv7 Doorbell、Standard 包。
 
-## 部署步骤（Windows 仅使用 D:\Codex）
+## 部署步骤（门铃健康协议修复；Windows 仅使用 D:\Codex）
 
-1. 从 GitHub Actions 的 **V51.4 resident candidate** 测试工作流下载 Doorbell 包。应从同一提交取得包和 SHA256SUMS；不要混用 V51.2/V51.3 二进制。
-2. 解压整个 Doorbell 包到 `D:\Codex\XiaoNexus\V51.4\doorbell\`。不要覆盖原有 V51.2、D 盘备份或现有认证配置。
-3. 确认手机/音箱当前没有活跃 `xiaonexus-supervisor` 或 `frida-inject`。旧 `lx04-deepseek/disabled` 必须存在。
-4. 首先分阶段安装不激活：
+> **注意：旧 V51.4 安装脚本不会部署 Agent。** 本次新 Supervisor 要求 Agent 的 `/v1/health` 返回 `healthy`，所以必须使用包含 Agent 一并备份/暂存的新版 `Install_Resident_LX04.ps1`。不要使用旧候选包或从不同 Actions run 拼装文件。
+
+1. 从最新成功的 **V51.4 resident candidate validation** GitHub Actions run 下载整个 `XiaoNexus-V51.4-resident-candidate` artifact。artifact 内部包含 Doorbell / Standard 两个 tar.gz 和外层 `SHA256SUMS`。只使用 **Doorbell** 包。
+2. 在 D 盘解压。示例：
    ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Codex\XiaoNexus\V51.4\doorbell\Install_Resident_LX04.ps1"
+   $root = "D:\Codex\XiaoNexus\V51.4\doorbell"
+   New-Item -ItemType Directory -Force -Path $root | Out-Null
+   tar -xzf "D:\Codex\XiaoNexus\artifacts\XiaoNexus-V51.4-LX04-doorbell-armv7.tar.gz" -C $root
    ```
-   输出应包含 `CANDIDATE_HASHES_PASS`、`BACKUP_READY=...`、`RESIDENT_STAGED`。
-5. 然后人工激活：
+   确认 `$root\bin\xiaonexus-agent`、`$root\bin\xiaonexus-supervisor`、`$root\frida\lx04_nexus_gate.js`、`$root\Install_Resident_LX04.ps1` 和 `$root\SHA256SUMS` 均存在。不要覆盖旧备份或现有认证配置。
+3. **只读预检**，不修改设备：
    ```powershell
-   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Codex\XiaoNexus\V51.4\doorbell\Install_Resident_LX04.ps1" -Activate
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Preflight_XiaoNexus.ps1" -Device "192.168.0.192:5555"
    ```
-   注意二次运行也会二次备份；未触发重复注入时才能激活。**建议在无附加的稳定窗口执行。**
-6. 查看设备 `/data/adb/xiaonexus/diag/resident-status.log`：`EFS_ONCE_START` → `EFS_FLAGS_CONFIRMED` → `VOICE_SUPERVISOR_START`；接着查看 `supervisor-last.log` 中的 `READY_PASS_ALL`。
-7. 再做普通小爱、米家、音乐、天气、音量、DeepSeek 拒答以及原厂播报中途的 3～5 次 expand（重点观察脱敏失败原因）。检查空闲 CPU、`logd` 和 `efs-base`。
-8. 由用户自行决定冷重启一次；启动后重复检查 EFS 性能、Supervisor 是否自动附加以及原厂功能，**这是尚未完成的关键验收**。
+   必须看到 `PREFLIGHT_PASS_READ_ONLY`。检查输出设备为 Android 8.1 / SDK 27 / `armeabi-v7a`，OEM 主进程恰好一个，root 可用。
+4. 先停止旧 XiaoNexus 常驻，但不停止原厂小爱：
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Install_Resident_LX04.ps1" -Disable
+   ```
+   等待旧进程全部退出后再继续：
+   ```powershell
+   $adb = "D:\Codex\platform-tools\adb.exe"
+   $device = "192.168.0.192:5555"
+   & $adb -s $device shell "pidof xiaonexus-supervisor xiaonexus-agent frida-inject"
+   ```
+   上述命令应无进程输出。若仍有 PID，不要强行覆盖；等待正常退出并重新检查。不要杀死 `com.xiaomi.micolauncher` 或 `:miot`。
+5. **只暂存，不激活**：
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Install_Resident_LX04.ps1"
+   ```
+   新安装器会先在 `D:\Codex\XiaoNexus\backups\resident-pre-时间戳\` 备份旧 Agent、Supervisor 和 Frida JS，再将三者作为一组原子替换，并暂时保留 `/data/adb/xiaonexus/disabled`。还会保存本次包的 SHA256SUMS 摘要，供下一步确认只能激活同一包。期望输出：
+   - `CANDIDATE_HASHES_PASS`
+   - `BACKUP_READY=...`
+   - `DEVICE_STAGE_MANIFEST=...`
+   - `RESIDENT_STAGED`
+   
+   若没有这些结果，停止，不要激活。
+6. 确认设备仍处于禁用状态、三件套已暂存后，使用**同一个目录、同一个安装脚本**激活：
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Install_Resident_LX04.ps1" -Activate
+   ```
+   `-Activate` 现在是独立激活操作：会验证本地候选包摘要与设备暂存摘要一致、三个关键文件存在、旧进程已退出；不会再次上传文件或重复创建备份。验证不通过会拒绝激活。
+7. 启动后检查：
+   ```powershell
+   & $adb -s $device shell su -c "cat /data/adb/xiaonexus/diag/resident-status.log"
+   & $adb -s $device shell su -c "tail -n 80 /data/adb/xiaonexus/diag/supervisor-last.log"
+   & $adb -s $device shell "pidof com.xiaomi.micolauncher xiaonexus-agent xiaonexus-supervisor frida-inject"
+   ```
+   预期常驻日志顺序：`RESIDENT_START` → `EFS_ONCE_START` → `EFS_FLAGS_CONFIRMED` → `VOICE_SUPERVISOR_START`；Supervisor 日志出现 `READY_PASS_ALL`。确认 Agent、Supervisor、Frida 注入器各只有一份，原厂 PID 未变化。
+8. **门铃专项验收**：记录门铃响起前的 Supervisor / Frida PID；按一次门铃。在门铃画面持续约一分钟期间：
+   - 原厂门铃画面、门铃事件与原厂功能正常；
+   - Supervisor、Frida PID 保持不变，不出现新的 `VOICE_SUPERVISOR_START`；
+   - Supervisor 日志出现 `XIAONEXUS_ROUTING_BLOCKED_PASS_ALL`；
+   - 门铃画面消失且原有 8 秒保护期结束后，出现 `XIAONEXUS_ROUTING_RESUMED`；
+   - 再测试一次普通小爱知识问答、设备控制、音乐，以及一条确认会由 DeepSeek 接管的拒答问题。
+   
+   这次修复的验收重点是**门铃期间不退出、不重附加，结束后同一个进程自动恢复**，不是单看 `ready=false`。暂不立即做冷重启；先完成按铃和基本功能验收，再单独安排重启测试。
+9. 检查空闲 CPU、`efs-base` 和 `logd`。不上传包含原始 ASR、Token、账号或设备凭据的日志；只分享脱敏后的状态行。
 
-### 回退
+### 紧急停止与回退
 
+**仅停止 XiaoNexus、恢复原厂语音：**
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "D:\Codex\XiaoNexus\V51.4\doorbell\Install_Resident_LX04.ps1" -Disable
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Install_Resident_LX04.ps1" -Disable
 ```
+该操作设置禁用标记并温和停止本方案 Agent / Supervisor；不会停止或修改原厂小爱。确认 `xiaonexus-supervisor`、`xiaonexus-agent`、`frida-inject` 均退出后，设备保持原厂语音状态。
 
-禁用文件将阻止之后的开机自启；旧 Supervisor / gate JS 的备份在 `D:\Codex\XiaoNexus\backups\resident-pre-*`。如需恢复旧的程序文件，应在确认 Supervisor / frida-inject 退出后再原子替换，不能覆盖正在运行的二进制。原厂应用不应被杀死或重签。
+**恢复升级前的 V51.4 三件套：** 使用安装时打印的 `BACKUP_READY` 路径，先执行 `-Disable` 并确认上述进程退出；再把备份中的 `xiaonexus-agent`、`xiaonexus-supervisor`、`lx04_nexus_gate.js` 推回原路径，使用临时文件 + `mv` 原子替换，最后删除 disabled 标记并启动 service。不要只回滚其中一个组件，也不要覆盖正在运行的二进制。原厂 APK 不应被杀死或重签。
 
 ## 旧 XiaoSeek / 旧 Frida 退役（冷重启验证之后）
 
