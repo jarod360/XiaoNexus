@@ -58,6 +58,7 @@ if (!$sourceFull.StartsWith("D:\Codex\",[StringComparison]::OrdinalIgnoreCase)) 
     throw "Package must be extracted below D:\Codex"
 }
 $required = @(
+    "bin\xiaonexus-agent",
     "bin\xiaonexus-supervisor",
     "frida\lx04_nexus_gate.js",
     "resident\efs_recover.js",
@@ -82,6 +83,20 @@ foreach ($line in Get-Content -LiteralPath $checksums) {
     }
 }
 Write-Host "CANDIDATE_HASHES_PASS"
+$manifestHash = (Get-FileHash -LiteralPath $checksums -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($Activate) {
+    if ((Root 'id -u') -ne "0") { throw "Root unavailable" }
+    $remoteManifest = Root 'cat /data/adb/xiaonexus/resident/staged-package.sha256 2>/dev/null || true'
+    if ($remoteManifest -ne $manifestHash) { throw "STAGED_PACKAGE_MISMATCH: stage this exact package before activation" }
+    $staged = Root 'test -x /data/adb/xiaonexus/bin/xiaonexus-agent && test -x /data/adb/xiaonexus/bin/xiaonexus-supervisor && test -f /data/adb/xiaonexus/frida/lx04_nexus_gate.js && test -f /data/adb/xiaonexus/resident/efs_once.sh && test -f /data/adb/service.d/xiaonexus.sh && test -e /data/adb/xiaonexus/disabled && echo STAGED_READY || echo STAGE_INCOMPLETE'
+    if ($staged -ne "STAGED_READY") { throw "STAGE_INCOMPLETE: device remains disabled" }
+    $busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
+    if ($busy.Trim()) { throw "INJECTOR_STILL_ACTIVE: wait for all old processes to exit" }
+    Root 'rm -f /data/adb/xiaonexus/disabled && sh /data/adb/service.d/xiaonexus.sh' | Out-Null
+    Write-Host "RESIDENT_ACTIVATION_REQUESTED"
+    Write-Host "Verify /data/adb/xiaonexus/diag/resident-status.log and real voice behavior."
+    return
+}
 if ((Root 'id -u') -ne "0") { throw "Root unavailable" }
 $legacyState = Root 'if [ -d /data/adb/lx04-deepseek ]; then test -f /data/adb/lx04-deepseek/disabled && echo DISABLED || echo ACTIVE; else echo ABSENT; fi'
 if ($legacyState -match "ACTIVE") { throw "Legacy XiaoSeek must be disabled before installation" }
@@ -90,27 +105,30 @@ if ((Root '/data/adb/xiaonexus/frida/frida-inject --version') -ne "16.6.6") {
 }
 $oem = Root 'pidof com.xiaomi.micolauncher'
 if ($oem -notmatch '^\d+$') { throw "OEM PID invalid" }
-$busy = Root 'pidof xiaonexus-supervisor frida-inject 2>/dev/null || true'
+$busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
 if ($busy.Trim()) { throw "Another injector is active; do not replace live files" }
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $backup = "D:\Codex\XiaoNexus\backups\resident-pre-$stamp"
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
-Root 'cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 644 /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
+Root 'test -x /data/adb/xiaonexus/bin/xiaonexus-agent && cp /data/adb/xiaonexus/bin/xiaonexus-agent /data/local/tmp/xn-pre-agent && cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 644 /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
 try {
+    & $adb -s $Device pull /data/local/tmp/xn-pre-agent "$backup\xiaonexus-agent" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Agent backup failed" }
     & $adb -s $Device pull /data/local/tmp/xn-pre-supervisor "$backup\xiaonexus-supervisor" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Supervisor backup failed" }
     & $adb -s $Device pull /data/local/tmp/xn-pre-gate.js "$backup\lx04_nexus_gate.js" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "JS backup failed" }
 } finally {
-    Root 'rm -f /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
+    Root 'rm -f /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
 }
-foreach ($f in @("$backup\xiaonexus-supervisor","$backup\lx04_nexus_gate.js")) {
+foreach ($f in @("$backup\xiaonexus-agent","$backup\xiaonexus-supervisor","$backup\lx04_nexus_gate.js")) {
     if ((Get-Item -LiteralPath $f).Length -le 0) { throw "Empty backup: $f" }
 }
 Write-Host "BACKUP_READY=$backup"
 # Keep new service disabled during staging; leave old program untouched.
 Root 'mkdir -p /data/adb/xiaonexus/resident /data/adb/service.d && touch /data/adb/xiaonexus/disabled && chmod 600 /data/adb/xiaonexus/disabled' | Out-Null
 $map = @(
+    @("bin\xiaonexus-agent","/data/adb/xiaonexus/bin/xiaonexus-agent","700"),
     @("bin\xiaonexus-supervisor","/data/adb/xiaonexus/bin/xiaonexus-supervisor","700"),
     @("frida\lx04_nexus_gate.js","/data/adb/xiaonexus/frida/lx04_nexus_gate.js","600"),
     @("resident\efs_recover.js","/data/adb/xiaonexus/resident/efs_recover.js","600"),
@@ -128,13 +146,9 @@ foreach ($entry in $map) {
     if ($LASTEXITCODE -ne 0) { throw "Upload failed: $($entry[0])" }
     Root ('cp ' + $temp + ' ' + $entry[1] + '.new && chmod ' + $entry[2] + ' ' + $entry[1] + '.new && mv ' + $entry[1] + '.new ' + $entry[1] + ' && rm -f ' + $temp) | Out-Null
 }
+$manifestHash = (Get-FileHash -LiteralPath $checksums -Algorithm SHA256).Hash.ToLowerInvariant()
+Root ("printf '%s\\n' '" + $manifestHash + "' > /data/adb/xiaonexus/resident/staged-package.sha256 && chmod 600 /data/adb/xiaonexus/resident/staged-package.sha256") | Out-Null
+Write-Host "DEVICE_STAGE_MANIFEST=$manifestHash"
 Write-Host "RESIDENT_STAGED; OEM_PID=$oem; legacy preserved"
-if ($Activate) {
-    Root 'rm -f /data/adb/xiaonexus/disabled' | Out-Null
-    Root 'sh /data/adb/service.d/xiaonexus.sh' | Out-Null
-    Write-Host "RESIDENT_ACTIVATION_REQUESTED"
-    Write-Host "Verify /data/adb/xiaonexus/diag/resident-status.log and real voice behavior."
-} else {
-    Write-Host "Staged only; rerun with -Activate after review."
-}
+Write-Host "Staged only; review the device files, then run this exact package with -Activate."
 Write-Host "Rollback switch: rerun -Disable; backups remain in $backup"
