@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
-DIALOG = re.compile(r"^[0-9a-fA-F]{32}$")
+DIALOG = re.compile(r"^[0-9a-fA-F]{31,32}$")
 REFUSALS = frozenset((
     '被你问住了，看来要更努力学习了',
     '这个问题我暂时还回答不上，需要再学习一下',

@@ -34,7 +34,7 @@ import (
 
 const address = "127.0.0.1:18765"
 const activity = "com.xiaomi.micolauncher/com.xiaomi.micolauncher.skills.baike.view.BaikeTextActivity"
-var dialogPattern = regexp.MustCompile("^[a-fA-F0-9]{32}$")
+var dialogPattern = regexp.MustCompile("^[a-fA-F0-9]{31,32}$")
 
 type request struct {
  Kind string `json:"kind"`
@@ -81,12 +81,19 @@ func token(path string) (string, error) {
  return value, err
 }
 
+type speechBox interface {
+ MiTTSContext(context.Context,string) error
+ RefreshMIoTCachedSID(context.Context) error
+}
 type server struct {
  mu sync.Mutex
+ ttsMu sync.Mutex
+ authRefreshAt time.Time
  model *voiceanswer.Engine
- box *xiaobot.XiaoMi
+ box speechBox
  doorbell *doorbellGuard
  generation uint64
+ waitingDialog string
  cancel context.CancelFunc
  seen map[string]time.Time
  key string
@@ -110,13 +117,17 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   } else if blocked {
    mode = "doorbell-prioritized-or-state-unavailable"
   }
+  s.mu.Lock()
+  waiting := s.waitingDialog
+  s.mu.Unlock()
   status := struct {
    Healthy bool `json:"healthy"`
    Ready bool `json:"ready"`
    RoutingBlocked bool `json:"routing_blocked"`
    Mode string `json:"mode"`
    NoGlobalMute bool `json:"no_global_mute"`
-  }{healthy, ready, blocked, mode, true}
+   WaitingDialog string `json:"waiting_dialog_id"`
+  }{healthy, ready, blocked, mode, true, waiting}
   _ = json.NewEncoder(w).Encode(status)
   return
  }
@@ -140,6 +151,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  if s.cancel != nil { s.cancel() }
  ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
  s.cancel = cancel; s.generation++
+ s.waitingDialog = strings.ToLower(req.DialogID)
  generation := s.generation
  s.mu.Unlock()
  w.Header().Set("Content-Type", "application/json")
@@ -152,13 +164,31 @@ func (s *server) preemptForDoorbell() {
  s.generation++
  if s.cancel != nil { s.cancel() }
  s.cancel = nil
+ s.waitingDialog = ""
  s.mu.Unlock()
  // No master mute state exists in this Agent.
+}
+func (s *server) finishWaiting(generation uint64) {
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ if s.generation == generation { s.waitingDialog = "" }
+}
+func (s *server) nativeSpeech(ctx context.Context,text string) error {
+ s.ttsMu.Lock();defer s.ttsMu.Unlock()
+ if err:=ctx.Err();err!=nil{return err}
+ err:=s.box.MiTTSContext(ctx,text)
+ if err==nil||ctx.Err()!=nil||!strings.Contains(err.Error(),"HTTP 401;"){return err}
+ if !s.authRefreshAt.IsZero()&&time.Since(s.authRefreshAt)<5*time.Minute{return err}
+ s.authRefreshAt=time.Now()
+ log.Print("MIOT_TTS_AUTH401_CACHED_PASS_REFRESH_ONCE")
+ if refreshErr:=s.box.RefreshMIoTCachedSID(ctx);refreshErr!=nil{return refreshErr}
+ if err:=ctx.Err();err!=nil{return err}
+ return s.box.MiTTSContext(ctx,text)
 }
 func (s *server) answer(ctx context.Context, generation uint64, req request) {
  defer func(){
   s.mu.Lock()
-  if s.generation == generation { s.cancel = nil }
+  if s.generation == generation { s.cancel = nil; s.waitingDialog = "" }
   s.mu.Unlock()
  }()
  start := time.Now()
@@ -171,13 +201,14 @@ func (s *server) answer(ctx context.Context, generation uint64, req request) {
  valid := s.generation == generation && ctx.Err() == nil
  s.mu.Unlock()
  if !valid { return }
+ s.finishWaiting(generation)
  // OEM BaikeTextActivity must start before TTS; never emit BACK.
  command := exec.CommandContext(ctx, "/system/bin/am", "start", "-n", activity,
   "--es", "KEY_TEXT_TITLE", "DeepSeek", "--es", "KEY_TEXT_CONTENT", full)
  if err := command.Run(); err != nil { log.Print("native full-screen activity unavailable; speech continues") }
  if ctx.Err() != nil { return }
  speech := strings.NewReplacer("**", "", "#", "", "`", "", "\n", " ").Replace(full)
- if err := s.box.MiTTSContext(ctx, speech); err != nil {
+ if err := s.nativeSpeech(ctx, speech); err != nil {
   log.Print("native TTS rejected; answer may be displayed")
  } else {
   log.Printf("DeepSeek TTS accepted mode=%s elapsed=%s", req.Kind, time.Since(start).Round(time.Millisecond))

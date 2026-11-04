@@ -31,6 +31,7 @@ jobs:
           node experiments/v50.2/test_v50.js
           node --check runtime/frida/lx04_nexus_gate.js
           node tests/test_gate.js
+          node tests/test_native_wait.js
       - name: Parse Windows preflight without executing device operations
         shell: pwsh
         run: |
@@ -54,7 +55,7 @@ jobs:
       - name: Upload two separate bridge previews
         uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-V51.5-test-build
+          name: XiaoNexus-V51.6.0-RC-test-build
           path: |
             dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
             dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz

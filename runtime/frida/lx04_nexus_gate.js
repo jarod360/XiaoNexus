@@ -28,6 +28,42 @@
   var WAIT_TEXT = '请稍等……';
   var WAIT_MS = 1500;
   var activeWait = null;
+
+  // BEGIN_NATIVE_WAIT_CONTROLLER
+  function makeNativeWait(e) {
+    var current=null, pendingID=null, epoch=0;
+    function end(id,dismiss,reason) {
+      var w=current;
+      if(!w){if(pendingID && (!id || pendingID===id)){pendingID=null;epoch++;}else if(!dismiss && !id){epoch++;}return;}
+      if(id && id!==w.id)return;
+      current=null;var ticket=++epoch;e.clear(w.timer);
+      e.main(function(){try{if(dismiss && epoch===ticket && !current)e.dismiss(w.view);}
+        finally{e.dispose(w.view);e.note(reason);}});
+    }
+    return {
+      begin:function(id){
+        if(current && current.id===id)return;
+        end(null,true,'REPLACED');var ticket=++epoch;pendingID=id;
+        e.main(function(){
+          if(ticket!==epoch)return;
+          pendingID=null;var view;try{view=e.acquire();}catch(_){e.note('ACQUIRE_ERROR');return;}
+          if(!view){e.note('NOT_SHOWING');return;}
+          var w={id:id,view:view,deadline:e.now()+47000,timer:null};current=w;
+          try{e.start(view,id);w.timer=e.timer(function(){end(id,true,'TIMEOUT');},47000);e.note('STARTED');}
+          catch(_){end(id,true,'START_ERROR');}
+        });
+      },
+      end:end,
+      owns:function(view){return !!current && e.same(current.view,view);},
+      isCurrent:function(id,view){return !!current && current.id===id && e.same(current.view,view);},
+      remaining:function(){return current?Math.max(1,current.deadline-e.now()):0;},
+      sample:function(){if(current)e.sample(current.view);}
+    };
+  }
+  // END_NATIVE_WAIT_CONTROLLER
+  var nativeWait=null;
+  function nativeEnd(id,dismiss,why){if(nativeWait)nativeWait.end(id,dismiss,why);}
+
   var waitGeneration = 0;
   var ARM_TTL_MS = 45000;
   var PENDING_TTL_MS = 4000;
@@ -153,6 +189,7 @@
     notes.push(s);
     if (notes.length > 12) notes.shift();
     console.log('V50.1 ' + s);
+    if (/^[A-Za-z0-9_. :-]{1,100}$/.test(s)) emitHostLine('XIAONEXUS_GATE_NOTE:' + s);
   }
   function error(s) {
     gateDisabled = true; armed = false; pending = null; clearUi();
@@ -169,7 +206,7 @@
   function tally(target, name) { target[name] = (target[name] || 0) + 1; }
   function normalizeId(value) {
     var text = String(value);
-    return /^[a-f0-9]{32}$/i.test(text) ? text : null;
+    return /^[a-f0-9]{31,32}$/i.test(text) ? text : null;
   }
   function dialogId(inst) {
     var optional = inst.getDialogId();
@@ -229,6 +266,7 @@
     if (entry.eofSeen) stats.runWithEof++;
     if (!entry.cancelSeen && !entry.eofSeen) stats.runWithoutEndSignal++;
     stats.runFinished++;
+    if(entry.exactRefusal) note("OWNER_END_BLOCKS_"+entry.pcmBlocks+"_DROPPED_"+entry.droppedBlocks+"_STOPPED_"+(entry.gateStopped?1:0));
     recent.push({
       owner: entry.number,
       speak: entry.speakNumber,
@@ -304,7 +342,14 @@
   rpc.exports = {
     onFridaStdin: function (input) {
       var command = String(input).trim();
+      var waitCommand=/^(WAITBEGIN|WAITEND) ([a-f0-9]{31,32})$/.exec(command);
+      if(waitCommand){
+        if(waitCommand[1]==='WAITEND')nativeEnd(waitCommand[2],true,'REQUEST_END');
+        else if(!routingBlocked && nativeWait)nativeWait.begin(waitCommand[2]);
+        return;
+      }
       if (command === 'BLOCK') {
+        nativeEnd(null,true,'BLOCKED');
         routingBlocked = true;
         stopGate('ROUTING_BLOCKED');
         emitHostLine('XIAONEXUS_ROUTE_BLOCKED');
@@ -315,7 +360,7 @@
         emitHostLine('XIAONEXUS_ROUTE_UNBLOCKED');
         return;
       }
-      var m = /^(ARM|ARMEXP) ([a-fA-F0-9]{32})\s*$/.exec(command);
+      var m = /^(ARM|ARMEXP) ([a-fA-F0-9]{31,32})\s*$/.exec(command);
       if (!m) return;
       var id = m[2].toLowerCase();
       var accepted = armDialog(id, m[1] === 'ARMEXP' ? 'expand' : 'refusal');
@@ -428,13 +473,14 @@
             if (originName === 'SpeechRecognizer.Recognize') stats.speakRecognizeLinked++;
             var answer = String(Java.cast(instruction.getPayload(), Speak).getText());
             var refusal = originName === 'SpeechRecognizer.Recognize' && isRefusalText(answer);
+            if(isRefusalText(answer) && originName !== 'SpeechRecognizer.Recognize')note('REFUSAL_ORIGIN_MISMATCH_PASS_ALL');
             // Opt-in expansion only: one exact ASR dialog, nonempty bounded OEM answer.
             // Normal questions still require the eight complete refusal texts.
             var expandReply = originName === 'SpeechRecognizer.Recognize' &&
               targetedMode === 'expand' && targetedDialog === id &&
               answer.trim().length > 0 && answer.length <= 400;
             var gateReply = refusal || expandReply;
-            if (refusal) stats.exactRefusalReplies++;
+            if (refusal) {stats.exactRefusalReplies++;if (!armed) note('REFUSAL_NO_ARM_PASS_ALL');}
             expireArm();
             // A second Speak before task construction invalidates any outstanding reservation.
             // Remove unconsumed UI pre-markers too; a label already shown cannot
@@ -533,6 +579,14 @@
               uiDecisions.delete(id);
             }
             note('RESERVATION_FAIL_OPEN');
+            if (!originIsRecognize) note('GATE_REJECT_ORIGIN');
+            if (!sr || !sr.exact) note('GATE_REJECT_REPLY');
+            if (mode !== 'OEM') note('GATE_REJECT_MODE');
+            if (older !== 0) note('GATE_REJECT_OWNER_BUSY');
+            if (!codecReady) note('GATE_REJECT_CODEC_NOT_READY');
+            if (!oldDone) note('GATE_REJECT_OLD_TASK_NOT_DONE');
+            if (!hasCapability) note('GATE_REJECT_CAPABILITY');
+            if (gateDisabled || errors !== 0) note('GATE_REJECT_ERROR_DISABLED');
           }
           var hash = keyFor(this, System);
           var bucket = owners.get(hash) || [];
@@ -690,12 +744,71 @@
             }
           }
         } catch (_) { uiStats.uiFailures++; clearUi(); error('ui_card'); }
+        nativeEnd(null,false,'NEW_CARD');
         // An unrelated new card owns the shared UI. Do not dismiss it later.
         cancelWaitByNewCard();
         uiStats.uiPassThrough++;
         return cardRequest.call(this, text);
       };
       installed.push(cardRequest);
+
+
+      // Animation failure is isolated: existing voice gate still installs.
+      var nativeHooks=[];
+      try {
+        var NativeView=Java.use('com.xiaomi.micolauncher.skills.common.view.WakeupView');
+        var Animal=Java.use('com.xiaomi.micolauncher.skills.common.view.WakeupAnimalView');
+        var Lottie=Java.use('com.airbnb.lottie.LottieAnimationView');
+        var Status=Java.use('com.xiaomi.micolauncher.skills.common.WakeupHelper$WakeupStatus');
+        function nativeField(o,n){var f=o.getClass().getDeclaredField(n);f.setAccessible(true);return f;}
+        function animalOf(v){return Java.cast(nativeField(v,'g').get(v),Animal);}
+        function lottieOf(v){var a=animalOf(v);return Java.cast(nativeField(a,'a').get(a),Lottie);}
+        function nativeNote(n){emitHostLine('XIAONEXUS_NATIVE_WAIT_'+n);}
+        nativeWait=makeNativeWait({
+          now:function(){return Date.now();},timer:setTimeout,clear:clearTimeout,
+          main:function(fn){Java.scheduleOnMainThread(fn);},
+          same:function(a,b){return a.equals(b);},
+          acquire:function(){
+            if(!activeWait)return null;
+            var v=Java.cast(nativeField(activeWait.ref,'b').get(activeWait.ref),NativeView);
+            if(!v.isShowing())return null;
+            var held=Java.retain(v);cancelWaitByNewCard();return held;
+          },
+          start:function(v,id){
+            var a=animalOf(v);v.waitNlp();
+            nativeField(a,'j').set(a,Status.WAKEUP_STATUS_LOADING.value);
+            lottieOf(v).setVisibility(0);a.stepLoading();v.autoDismiss(47000);
+            // Renew only this owned wait; avoid hooking the shared OEM timer method.
+            function renew(){Java.scheduleOnMainThread(function(){
+              if(!nativeWait || !nativeWait.isCurrent(id,v))return;
+              try{if(!v.isShowing()){nativeEnd(id,false,'OEM_DISMISSED');return;}
+                v.autoDismiss(nativeWait.remaining());
+              }catch(_){nativeEnd(id,false,'RENEW_ERROR');return;}
+              setTimeout(renew,250);
+            });}
+            setTimeout(renew,250);
+          },
+          dismiss:function(v){if(v.isShowing())v.dismiss();},
+          dispose:function(v){v.$dispose();},note:nativeNote,
+          sample:function(v){try{var l=lottieOf(v);nativeNote('FRAME_'+l.getFrame()+'_RUN_'+(l.isAnimating()?1:0)+'_VISIBLE_'+(v.isShowing()?1:0));}catch(_){nativeNote('SAMPLE_ERROR');}}
+        });
+        var wake=Card.onWakeup.overload('boolean','boolean');
+        wake.implementation=function(a,b){nativeEnd(null,false,'NEW_WAKEUP');return wake.call(this,a,b);};nativeHooks.push(wake);
+        var Baike=Java.use('com.xiaomi.micolauncher.skills.baike.view.BaikeTextActivity');
+        var create=Baike.onCreate.overload('android.os.Bundle');
+        create.implementation=function(b){
+          if(String(this.getClass().getName())==='com.xiaomi.micolauncher.skills.baike.view.BaikeTextActivity')nativeEnd(null,true,'ANSWER_PAGE');
+          return create.call(this,b);
+        };nativeHooks.push(create);
+        // Fixed, bounded samples only; no frame-by-frame logging.
+        var originalBegin=nativeWait.begin;
+        nativeWait.begin=function(id){originalBegin(id);[500,1500,4000,10000,20000].forEach(function(ms){setTimeout(function(){Java.scheduleOnMainThread(function(){nativeWait.sample();});},ms);});};
+        Array.prototype.push.apply(installed,nativeHooks);
+        nativeNote('READY');
+      }catch(_){
+        for(var nh=nativeHooks.length-1;nh>=0;nh--)try{nativeHooks[nh].implementation=null;}catch(_){}
+        nativeWait=null;emitHostLine('XIAONEXUS_NATIVE_WAIT_UNAVAILABLE');
+      }
 
       ready = true;
       note('READY_V50_2_PASS_ALL hooks=' + installed.length);

@@ -3,6 +3,16 @@
 #   touch /data/adb/xiaonexus/disabled
 # Starts EFS recovery before XiaoNexus's real --enable session, never concurrently.
 base=/data/adb/xiaonexus
+oem_pid() {
+  parents="$(pidof zygote) $(pidof zygote64)"
+  for candidate in $(pidof com.xiaomi.micolauncher); do
+    parent=$(sed -n 's/^PPid:[[:space:]]*//p' /proc/"$candidate"/status 2>/dev/null)
+    for z in $parents; do
+      if [ "$parent" = "$z" ]; then echo "$candidate"; break; fi
+    done
+  done
+}
+
 run=$base/run
 diag=$base/diag
 sup=$base/bin/xiaonexus-supervisor
@@ -68,6 +78,17 @@ cleanup() {
 trap 'cleanup; exit 0' HUP INT TERM
 trap cleanup EXIT
 log RESIDENT_START
+# Avoid attaching while the OEM startup SDKs are still initializing/forking.
+boot_wait_logged=
+while [ ! -e "$disabled" ]; do
+  read boot_uptime ignored < /proc/uptime
+  boot_seconds=${boot_uptime%%.*}
+  if [ "$(getprop sys.boot_completed)" = 1 ] && [ "$boot_seconds" -ge 90 ] 2>/dev/null; then break; fi
+  if [ -z "$boot_wait_logged" ]; then log OEM_BOOT_GRACE_WAIT;boot_wait_logged=1;fi
+  sleep 3
+done
+[ -e "$disabled" ] && exit 0
+log OEM_BOOT_GRACE_READY
 last_oem=
 failures=0
 window_start=$(date +%s)
@@ -83,7 +104,7 @@ while [ ! -e "$disabled" ]; do
     log CIRCUIT_BREAKER_DISABLED
     break
   fi
-  oem=$(pidof com.xiaomi.micolauncher)
+  oem=$(oem_pid)
   case "$oem" in ''|*[!0-9]*) log OEM_NOT_READY; sleep 15; continue;; esac
   if [ "$oem" != "$last_oem" ]; then
     if pidof frida-inject >/dev/null 2>&1 ||
@@ -92,6 +113,14 @@ while [ ! -e "$disabled" ]; do
       sleep 15
       continue
     fi
+    log OEM_STABILITY_WAIT
+    stable=0
+    while [ "$stable" -lt 5 ] && [ ! -e "$disabled" ]; do
+      sleep 3
+      [ "$(oem_pid)" = "$oem" ] || break
+      stable=$((stable+1))
+    done
+    [ "$stable" -eq 5 ] || continue
     log EFS_ONCE_START
     if /system/bin/sh "$efs" >/dev/null 2>&1; then
       last_oem=$oem

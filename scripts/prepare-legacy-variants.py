@@ -41,6 +41,22 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    account = DEST / "client" / "miservice" / "account.go"
+    original = account.read_text(encoding="utf-8")
+    signature = "func (ma *Account) Login(sid string) error {"
+    if original.count(signature) != 1:
+        sys.exit("UNEXPECTED_ACCOUNT_LOGIN_SIGNATURE")
+    modified = original.replace(signature, signature + "\n return ma.login(sid,true)\n}\nfunc (ma *Account) login(sid string, allowPassword bool) error {")
+    marker = "if resp.Code != 0 {\n\t\tdata := url.Values{"
+    if modified.count(marker) != 1:
+        sys.exit("UNEXPECTED_ACCOUNT_PASSWORD_BRANCH")
+    modified = modified.replace(marker, 'if resp.Code != 0 {\n\t\tif !allowPassword { return errors.New("cached passToken rejected; no password login") }\n\t\tdata := url.Values{')
+    modified = modified.replace("ma.token.PassToken = resp.PassToken", 'if allowPassword || resp.PassToken != "" { ma.token.PassToken = resp.PassToken }')
+    account.write_text(modified, encoding="utf-8")
+    shutil.copy2(ROOT / "runtime/auth/cached_sid.go", DEST / "client/miservice/xiaonexus_cached_sid.go")
+    shutil.copy2(ROOT / "runtime/auth/cached_sid_test.go", DEST / "client/miservice/xiaonexus_cached_sid_test.go")
+    shutil.copy2(ROOT / "runtime/auth/xiaomi_cached_auth.go", DEST / "client/xiaonexus_cached_auth.go")
+
     nexus = DEST / "client" / "cmd" / "xiaonexus-agent"
     nexus.mkdir(parents=True, exist_ok=True)
     for filename in ("main.go", "main_test.go"):

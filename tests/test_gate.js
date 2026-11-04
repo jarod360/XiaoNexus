@@ -442,4 +442,22 @@ test('frida-inject accepts ARMEXP only for a known OEM Recognize dialog',()=>{
  assert.equal(t.status().targetArmed,true);
 });
 
-console.log('RESULT', passed + ' tests PASS');
+
+
+test('observed 31-char dialog can arm gate and signal host unchanged',()=>{
+ let t=setup(),id='a'.repeat(31);t.event('SpeechRecognizer.Recognize',id);
+ t.rpc.exports.onFridaStdin('ARM '+id);assert(t.status().armed);
+ t.speakEvent(id,REF);let p=t.owner(id);t.write(p,Uint8Array.of(1,2));t.end(p);
+ assert.equal(p.put.filter(x=>x.length).length,0);assert.equal(t.messages[0].dialog_id,id);
+ assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_ARM:'+id+':1\n'));
+});
+test('31-char dialog must not alias a zero-padded 32-char ID',()=>{
+ let t=setup(),id='a'.repeat(31),other='0'+id;t.event('SpeechRecognizer.Recognize',id);assert(t.rpc.exports.armdialog(id));
+ t.event('SpeechRecognizer.Recognize',other);t.speakEvent(other,REF);let p=t.owner(other);t.write(p,Uint8Array.of(1));t.end(p);
+ assert.equal(t.messages.length,0);assert.equal(t.status().gateCounters.pcmDroppedBlocks,0);
+});
+test('dialog protocol still rejects 30 33 and nonhex IDs',()=>{
+ for(const id of ['a'.repeat(30),'a'.repeat(33),'g'.repeat(31)]){let t=setup();t.event('SpeechRecognizer.Recognize',id);assert.equal(t.rpc.exports.armdialog(id),false);}
+});
+
+console.log('RESULT',passed,'tests PASS');

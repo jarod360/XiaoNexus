@@ -27,7 +27,8 @@ import (
 )
 
 const receiver = "http://127.0.0.1:18765"
-var validID = regexp.MustCompile("^[0-9a-fA-F]{32}$")
+var validID = regexp.MustCompile("^[0-9a-fA-F]{31,32}$")
+var validGateNote = regexp.MustCompile(`^XIAONEXUS_GATE_NOTE:[A-Za-z0-9_. :\-]{1,100}$`)
 // Action + reference intent recognition, NOT a list of complete voice sentences.
 // Never automatically judge whether an OEM answer is "too short".
 var expandActions = []string{
@@ -164,6 +165,7 @@ func (r *router) gate(id string)action {
 type client struct{ token string; http *http.Client }
 
 type receiverStatus struct {
+ WaitingDialog string `json:"waiting_dialog_id"`
  Healthy bool `json:"healthy"`
  Ready bool `json:"ready"`
  RoutingBlocked bool `json:"routing_blocked"`
@@ -205,16 +207,28 @@ func oemPID() (int,error) {
  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
  out,err:=exec.CommandContext(ctx,"/system/bin/ps","-A").Output()
  if err!=nil{return 0,err}
- found:=0;pid:=0
- for _,line:=range strings.Split(string(out),"\n"){
-  fields:=strings.Fields(line)
-  if len(fields)<3 || fields[len(fields)-1]!="com.xiaomi.micolauncher"{continue}
-  n,e:=strconv.Atoi(fields[1]);if e!=nil||n<=0{continue}
+ return parseOEMProcessList(string(out))
+}
+func parseOEMProcessList(out string)(int,error) {
+ parents:=make(map[int]bool)
+ for _,line:=range strings.Split(out,"\n") {
+  f:=strings.Fields(line)
+  if len(f)>=3 && (f[len(f)-1]=="zygote"||f[len(f)-1]=="zygote64") {
+   pid,e:=strconv.Atoi(f[1]);if e==nil&&pid>0{parents[pid]=true}
+  }
+ }
+ found,pid:=0,0
+ for _,line:=range strings.Split(out,"\n") {
+  f:=strings.Fields(line)
+  if len(f)<3||f[len(f)-1]!="com.xiaomi.micolauncher"{continue}
+  parent,e:=strconv.Atoi(f[2]);if e!=nil||!parents[parent]{continue}
+  n,e:=strconv.Atoi(f[1]);if e!=nil||n<=0{continue}
   found++;pid=n
  }
- if found!=1{return 0,fmt.Errorf("expected one OEM process, found %d",found)}
+ if found!=1{return 0,fmt.Errorf("expected one zygote-owned OEM process, found %d",found)}
  return pid,nil
 }
+
 type event struct{kind,value string;inst instruction}
 func scanLines(ctx context.Context,reader io.Reader,events chan<- event,kind string){
  scanner:=bufio.NewScanner(reader)
@@ -238,9 +252,9 @@ func parseArmResult(line string)(string,bool,bool){
  constPrefix:="XIAONEXUS_ARM:"
  if !strings.HasPrefix(line,constPrefix){return "",false,false}
  body:=strings.TrimPrefix(line,constPrefix)
- if len(body)!=34 || body[32]!=':' || !validID.MatchString(body[:32]) {return "",false,false}
- if body[33]!='0' && body[33]!='1' {return "",false,false}
- return strings.ToLower(body[:32]),body[33]=='1',true
+ parts:=strings.Split(body,":")
+ if len(parts)!=2||!validID.MatchString(parts[0])||(parts[1]!="0"&&parts[1]!="1"){return "",false,false}
+ return strings.ToLower(parts[0]),parts[1]=="1",true
 }
 func parseArmReason(line string)(string,bool){
  constPrefix:="XIAONEXUS_ARM_REASON:"
@@ -283,11 +297,14 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  ready:=false
  // The JS gate starts BLOCKED. It may only be unblocked after both the
  // hook and the receiver report route readiness.
+ waitingDialog:=""
+ stopWait:=func(){if waitingDialog!=""{_,_=io.WriteString(stdin,"WAITEND "+waitingDialog+"\n");waitingDialog=""}}
+ defer stopWait()
  routingBlocked:=true
  setRoutingBlocked:=func(blocked bool){
   if !enable||blocked==routingBlocked{return}
   command:="UNBLOCK\n"
-  if blocked{command="BLOCK\n"}
+  if blocked{command="BLOCK\n";stopWait()}
   if _,e:=io.WriteString(stdin,command);e!=nil{
    log.Print("XIAONEXUS_ROUTING_CONTROL_WRITE_FAILED")
    return
@@ -302,11 +319,13 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
    return
   }
   routingBlocked=true
+  stopWait()
  }
  refreshRoute:=func(){
   status,ok:=c.status()
   if !ok||!status.routeReady(){setRoutingBlocked(true);return}
   setRoutingBlocked(false)
+  if waitingDialog!="" && status.WaitingDialog!=waitingDialog {stopWait()}
  }
  if enable&&!initial.routeReady(){log.Print("XIAONEXUS_ROUTING_BLOCKED_INITIAL_PASS_ALL")}
  tick:=time.NewTicker(time.Second);defer tick.Stop()
@@ -320,6 +339,8 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   case ev:=<-events:
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
+    if strings.HasPrefix(ev.value,"XIAONEXUS_GATE_NOTE:") && validGateNote.MatchString(ev.value) {log.Print(ev.value);continue}
+    if strings.HasPrefix(ev.value,"XIAONEXUS_NATIVE_WAIT_") && len(ev.value)<120 {log.Print(ev.value);continue}
     if id,accepted,ok:=parseArmResult(ev.value);ok {
      mode:="REFUSAL";if d:=r.dialogs[id];d!=nil&&d.expand{mode="EXPAND"}
      state:="REJECTED";if accepted{state="ACCEPTED"}
@@ -355,8 +376,13 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
       log.Print("XIAONEXUS_RECEIVER_SUBMIT_FAILED_PASS_ALL")
       continue
      }
+     if a.kind=="refusal"||a.kind=="expand" {
+      stopWait();waitingDialog=a.id
+      _,_ = io.WriteString(stdin,"WAITBEGIN "+a.id+"\n")
+     }
     }
    } else if ev.kind=="oem" {
+    if ev.inst.kind=="asr" {log.Printf("XIAONEXUS_FINAL_ASR_SEEN dialog8=%s",ev.inst.id[:8])}
     a:=r.feed(ev.inst)
     if ev.inst.kind=="knowledge"&&r.previous!=nil&&r.previous.dialogID==ev.inst.id{
      log.Printf("XIAONEXUS_EXPAND_KNOWLEDGE_SAVED dialog8=%s",ev.inst.id[:8])
@@ -389,6 +415,7 @@ func singleton(path string)(*os.File,error){
  return lock,nil
 }
 func main(){
+ time.Local = time.FixedZone("CST", 8*60*60)
  var injector=flag.String("injector","/data/adb/xiaonexus/frida/frida-inject","official Frida 16.6.6 Android ARM binary")
  var script=flag.String("script","/data/adb/xiaonexus/frida/lx04_nexus_gate.js","pinned XiaoNexus JavaScript")
  var tokenPath=flag.String("token","/data/adb/xiaonexus/control.token","owner-only receiver token")
