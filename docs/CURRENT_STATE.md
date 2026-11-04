@@ -19,6 +19,30 @@
 
 ## 2026-11-04 新证据：门铃附近的接收器健康失败与反复重附加
 
+### 18:07 只读采样确认：一分钟门铃显示造成约 90 秒接管空窗
+
+用户补充门铃画面通常持续约 **60 秒**。18:07 的 30 次采样在 18:07:27 仍为 `IDLE/ready=True`，18:07:30 起变为 `ACTIVE/ready=False`，之后采样到 18:08:19 仍为 `ACTIVE/ready=False`。采样在 ACTIVE 状态结束，没有记录到本轮恢复 IDLE 的确切时刻；用户说明画面持续约一分钟。
+
+源码链条已逐项确认：
+
+1. `doorbellGuard.check()` 将 `doorbell-shared-live` 视为 blocked，并把 `holdUntil` 延后 8 秒；门铃状态接口异常或缺少 `popups` 也会 blocked。
+2. `/v1/health` 当前只返回聚合后的 `ready`；门铃 active / 8 秒 hold / 状态接口异常全部变成 `ready=false`，没有独立的 receiver liveness 字段。
+3. `device-supervisor.client.healthy()` 要求 `ready=true`，因此把“暂时禁止接管”当成“回答接收器不健康”。
+4. Supervisor 启动时健康检查失败会立即退出；运行中每 5 秒健康检查失败会 detach / fail-open。
+5. `resident.sh` 对该退出固定等待 30 秒再试。约 60 秒画面 + 8 秒 hold 的期间，30 秒重试可能分别落在约 +30 秒和 +60 秒（仍在 8 秒 hold 内），第三次约 +90 秒才成功。**这与历史 17:08、17:23、17:27 的“退出→30 秒重试→再退出→30 秒重试→再退出→约 90 秒后 READY”节奏高度吻合。**
+
+所以当前最合理、源码和采样均支持的结论是：**门铃优先策略本身生效，但健康状态语义错误地把短时路由阻止升级成 Supervisor/Frida 整体退出，放大成约 90 秒接管空窗。** 历史故障与门铃时段的逐次精确对应仍需对应时间的门铃事件日志确认；但本次采样已经复现 ACTIVE → ready=false 的直接关系。
+
+#### 最小修复设计（尚未部署到设备）
+
+- 将回答接收器 **liveness**（Agent/模型/小米会话进程仍存活）与 **route readiness**（当前门铃不活跃、状态服务可用、允许提交 DeepSeek）分开返回。
+- Supervisor 仅在 receiver 真正进程/服务不可用时按原策略 fail-open；门铃 active 或状态不确定时保持 Frida 会话存活，但将 PCM 路由置为 **PASS-ALL / BLOCK**，不发 ARM、不提交 DeepSeek。
+- 在 Frida stdin 增加明确的 `BLOCK` / `UNBLOCK` 控制：`BLOCK` 调用现有 `stopGate()`，释放当前 owner 的后续 PCM、清除 pending/UI、撤销 arm；门铃结束且 readiness 恢复后再 `UNBLOCK`。脚本初始默认 BLOCK，避免启动竞态。
+- Agent 现有 `preemptForDoorbell()` 继续取消正在运行的 DeepSeek 请求；保留门铃优先、无全局静音、无 BACK、无额外注入器。
+- Supervisor 保留同一 router 内存，避免每次门铃清空上一轮知识回答上下文。
+- 测试需覆盖：active 期间 Supervisor PID/Frida 不变、ARM 被拒绝、已有 owner 被释放为 pass-through；门铃 IDLE 且 hold 结束后自动恢复；真实 receiver 不可用仍安全 PASS-ALL；原生设备控制/音乐/门铃无回归。
+
+
 用户提供的 `resident-status.log`、`supervisor-last.log` 说明：**17:08:03、17:23:56、17:27:10** 三次 `answer receiver unavailable; detach and fail-open`，每次紧接着约每 30 秒重试，至少两次出现 `answer receiver unhealthy; no injection`，随后于 **17:09:39、17:25:34、17:28:46** 分别重新 `READY_PASS_ALL`。后续 **17:37:44** 再出现 `ARM_REFUSAL_ACCEPTED`，说明最后一次已恢复接管通路。
 
 **已确认的软件链：** `runtime/device-supervisor/main.go` 的 `healthy()` 对 `127.0.0.1:18765/v1/health` 返回 false 后，当前 `--enable` Supervisor 在 5 秒巡检中主动退出；`runtime/device-resident/resident.sh` 把这类失败单独退避 30 秒后重启。每次新 Supervisor 会创建新的 `router`，失去上一轮知识上下文，所以即使语音识别正确也可能漏掉 `expand` 关联。
