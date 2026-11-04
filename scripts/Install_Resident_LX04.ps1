@@ -31,7 +31,8 @@ $required = @(
     "resident\efs_once.sh",
     "resident\resident.sh",
     "resident\service.sh",
-    "resident\disable.sh"
+    "resident\disable.sh",
+    "resident\retire_legacy.sh"
 )
 foreach ($name in $required) {
     if (!(Test-Path -LiteralPath (Join-Path $source $name))) { throw "Missing candidate file: $name" }
@@ -49,9 +50,8 @@ foreach ($line in Get-Content -LiteralPath $checksums) {
 }
 Write-Host "CANDIDATE_HASHES_PASS"
 if ((Adb 'su -c "id -u"').Trim() -ne "0") { throw "Root unavailable" }
-if ((Adb 'su -c "test -f /data/adb/lx04-deepseek/disabled && echo DISABLED"') -notmatch "DISABLED") {
-    throw "Legacy XiaoSeek must be disabled before installation"
-}
+$legacyState = Adb 'su -c "if [ -d /data/adb/lx04-deepseek ]; then test -f /data/adb/lx04-deepseek/disabled && echo DISABLED || echo ACTIVE; else echo ABSENT; fi"'
+if ($legacyState -match "ACTIVE") { throw "Legacy XiaoSeek must be disabled before installation" }
 if ((Adb 'su -c "/data/adb/xiaonexus/frida/frida-inject --version"').Trim() -ne "16.6.6") {
     throw "Requires existing official Frida 16.6.6 android-arm"
 }
@@ -62,7 +62,7 @@ if ($busy.Trim()) { throw "Another injector is active; do not replace live files
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $backup = "D:\Codex\XiaoNexus\backups\resident-pre-$stamp"
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
-Adb 'su -c "cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 600 /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js"' | Out-Null
+Adb 'su -c "cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 644 /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js"' | Out-Null
 try {
     & $adb -s $Device pull /data/local/tmp/xn-pre-supervisor "$backup\xiaonexus-supervisor" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Supervisor backup failed" }
@@ -84,7 +84,8 @@ $map = @(
     @("resident\efs_once.sh","/data/adb/xiaonexus/resident/efs_once.sh","700"),
     @("resident\resident.sh","/data/adb/xiaonexus/resident/resident.sh","700"),
     @("resident\service.sh","/data/adb/service.d/xiaonexus.sh","700"),
-    @("resident\disable.sh","/data/adb/xiaonexus/resident/disable.sh","700")
+    @("resident\disable.sh","/data/adb/xiaonexus/resident/disable.sh","700"),
+    @("resident\retire_legacy.sh","/data/adb/xiaonexus/resident/retire_legacy.sh","700")
 )
 $i=0
 foreach ($entry in $map) {
