@@ -95,3 +95,39 @@ func TestSupervisorSingletonLock(t *testing.T){
  c,e:=singleton(path);if e!=nil{t.Fatal("kernel lock not released after close",e)}
  c.Close()
 }
+
+// Same positive/negative corpus as Python's intent tests. We avoid matching
+// any arbitrary sentence that merely contains "补充" or "完善".
+func TestContextualExpansionVocabulary(t *testing.T){
+ positive:=[]string{
+  "让DeepSeek完善下小爱同学上轮的回答",
+  "补充一下上一轮的问答","完善下刚才的答案","把上一个问题展开讲讲",
+  "把刚刚的回答说得更详细些","再详细解释一下之前那个问题",
+  "刚才你说的答案，请重新回答","补全上轮回答","纠正一下刚才的解释",
+  "展开上个问题的回答",
+ }
+ for _,s:=range positive {if !isExpand(s){t.Errorf("did not recognize: %s",s)}}
+ negative:=[]string{
+  "帮我补充水","完善空调设置","详细说一下天气","播放上轮音乐",
+  "打开灯再完善设置","补充电池","为什么要补充维生素",
+  "今天让DeepSeek完善一下小爱同学上一轮的回答怎么样",
+  "关闭门铃","这一轮的答案","讲个笑话",
+ }
+ for _,s:=range negative {if isExpand(s){t.Errorf("false positive: %s",s)}}
+}
+func TestBriefExpansionRequiresRecentKnowledge(t *testing.T){
+ a,b,c:=strings.Repeat("a",32),strings.Repeat("b",32),strings.Repeat("c",32)
+ now:=time.Unix(500,0)
+ r:=newRouter(func()time.Time{return now})
+ if !isExpand("补充下")||!isExpand("再详细点"){t.Fatal("brief intent missing")}
+ r.feed(instruction{"asr",a,"什么是黑洞"})
+ r.feed(instruction{"knowledge",a,"时空区域"})
+ now=now.Add(20*time.Second)
+ if x:=r.feed(instruction{"asr",b,"补充下"});x.kind!="arm_expand"{t.Fatal(x)}
+ if x:=r.gate(b);x.kind!="expand"||x.query!="什么是黑洞"{t.Fatal(x)}
+ z:=newRouter(func()time.Time{return now})
+ z.feed(instruction{"asr",a,"什么是地球"})
+ z.feed(instruction{"knowledge",a,"一颗行星"})
+ now=now.Add(61*time.Second)
+ if x:=z.feed(instruction{"asr",c,"补充下"});x.kind=="arm_expand"{t.Fatal("stale brief command triggered")}
+}

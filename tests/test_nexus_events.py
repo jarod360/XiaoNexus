@@ -3,7 +3,7 @@ import pathlib
 import sys
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'runtime' / 'host'))
-from nexus_events import SessionRouter, Instruction, parse_instruction, is_expand_command, is_refusal
+from nexus_events import SessionRouter, Instruction, parse_instruction, is_expand_command, is_brief_expand, is_refusal
 
 A = 'a' * 32
 B = 'b' * 32
@@ -94,6 +94,42 @@ class OEMRouterTest(unittest.TestCase):
                 router.feed(inst)
         answer = router.feed(Instruction('asr', B, '让DeepSeek完善下小爱同学上轮的回答'))
         self.assertEqual(answer[0]['action'], 'expand_unavailable')
+
+    def test_contextual_expansion_vocabulary(self):
+        positive = [
+            '让DeepSeek完善下小爱同学上轮的回答',
+            '补充一下上一轮的问答', '完善下刚才的答案', '把上一个问题展开讲讲',
+            '把刚刚的回答说得更详细些', '再详细解释一下之前那个问题',
+            '刚才你说的答案，请重新回答', '补全上轮回答', '纠正一下刚才的解释',
+            '展开上个问题的回答',
+        ]
+        negative = [
+            '帮我补充水', '完善空调设置', '详细说一下天气', '播放上轮音乐',
+            '打开灯再完善设置', '补充电池', '为什么要补充维生素',
+            '今天让DeepSeek完善一下小爱同学上一轮的回答怎么样',
+            '关闭门铃', '这一轮的答案', '讲个笑话',
+        ]
+        for speech in positive:
+            with self.subTest(speech=speech):
+                self.assertTrue(is_expand_command(speech))
+        for speech in negative:
+            with self.subTest(speech=speech):
+                self.assertFalse(is_expand_command(speech))
+
+    def test_brief_command_needs_immediate_previous_knowledge(self):
+        now = [100.0]
+        r = SessionRouter(clock=lambda: now[0])
+        self.assertTrue(is_brief_expand('请补充下'))
+        self.assertTrue(is_brief_expand('再详细点'))
+        r.feed(Instruction('asr', A, '什么是黑洞'))
+        r.feed(Instruction('knowledge', A, '时空区域'))
+        now[0] += 20
+        self.assertEqual(r.feed(Instruction('asr', B, '补充下'))[0]['action'], 'arm_expand')
+        later = SessionRouter(clock=lambda: now[0])
+        later.feed(Instruction('asr', A, '为什么天空是蓝色的'))
+        later.feed(Instruction('knowledge', A, '瑞利散射'))
+        now[0] += 61
+        self.assertEqual(later.feed(Instruction('asr', C, '补充下'))[0]['action'], 'arm')
 
 if __name__=='__main__':
     unittest.main()

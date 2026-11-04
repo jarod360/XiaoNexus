@@ -23,24 +23,84 @@ import (
  "strings"
  "syscall"
  "time"
+ "unicode"
 )
 
 const receiver = "http://127.0.0.1:18765"
 var validID = regexp.MustCompile("^[0-9a-fA-F]{32}$")
-var strictCommands = map[string]bool{
- "让deepseek完善一下小爱同学上一轮的回答":true,
- "让deepseek完善下小爱同学上轮的回答":true,
- "让deepseek补充一下小爱同学上一轮的回答":true,
- "让deepseek详细回答上一个问题":true,
- "让deepseek重新回答上一个问题":true,
- "deepseek完善一下刚才小爱的回答":true,
- "deepseek详细解释一下刚才那个问题":true,
+// Action + reference intent recognition, NOT a list of complete voice sentences.
+// Never automatically judge whether an OEM answer is "too short".
+var expandActions = []string{
+ "补充","完善","补全","展开","详细","细讲","细说","讲清楚","说清楚",
+ "讲透","重讲","重新回答","重新解释","再回答","多讲","接着讲","接着说",
+ "扩展","拓展","纠正","更正",
 }
+var priorReferences = []string{
+ "刚才","刚刚","上一轮","上轮","上一个问题","上个问题",
+ "之前","前面","那个回答","那个问题","你刚才",
+}
+var answerObjects = []string{
+ "回答","答案","问题","问答","解释","内容","说的","讲的","那段","知识",
+}
+var shortExpandPattern = regexp.MustCompile(
+ `^(?:再)?(?:补充|完善|补全|展开|详细|细讲|细说|讲详细|说详细|详细讲|详细说|讲清楚|说清楚|重新回答|重新解释|多讲|接着讲)(?:一下|下|一点|点|一些|些|一遍|吧)?// SPDX-License-Identifier: Apache-2.0
+// A standalone, root-only LX04 supervisor using upstream frida-inject 16.6.6.
+// No OEM APK modifications, BACK, global mute, ADB or desktop dependency.
+package main
+
+import (
+ "bufio"
+ "bytes"
+ "context"
+ "encoding/json"
+ "errors"
+ "flag"
+ "fmt"
+ "io"
+ "log"
+ "net/http"
+ "os"
+ "os/exec"
+ "os/signal"
+ "path/filepath"
+ "regexp"
+ "strconv"
+ "strings"
+ "syscall"
+ "time"
+)
+
+const receiver = "http://127.0.0.1:18765"
+var validID = regexp.MustCompile("^[0-9a-fA-F]{32}$")
+,
+)
 func canon(s string) string {
- s = strings.Join(strings.Fields(s), "")
- return strings.ToLower(strings.TrimRight(strings.ReplaceAll(strings.ReplaceAll(s,",","，"),"!","！"),"。"))
+ return strings.Map(func(r rune) rune {
+  if unicode.IsSpace(r)||unicode.IsPunct(r)||unicode.IsSymbol(r) {return -1}
+  return unicode.ToLower(r)
+ },s)
 }
-func isExpand(s string) bool { return strictCommands[canon(s)] }
+func hasAny(s string, options []string)bool {
+ for _,word:=range options {if strings.Contains(s,word){return true}}
+ return false
+}
+func isBriefExpand(s string)bool {
+ n:=canon(s)
+ for i:=0;i<4;i++ {
+  old:=n
+  for _,p:=range []string{"请你","请","帮我","给我","小爱同学","小爱","让deepseek","deepseek","你"} {
+   if strings.HasPrefix(n,p){n=strings.TrimPrefix(n,p);break}
+  }
+  if old==n {break}
+ }
+ return shortExpandPattern.MatchString(n)
+}
+func isExpand(s string) bool {
+ n:=canon(s)
+ if n==""||len([]rune(n))>60 {return false}
+ if isBriefExpand(s) {return true}
+ return hasAny(n,expandActions)&&hasAny(n,priorReferences)&&hasAny(n,answerObjects)
+}
 
 type instruction struct {kind, id, text string}
 func parseOEM(line string) (instruction, bool) {
@@ -86,7 +146,13 @@ func (r *router) feed(i instruction) action {
   if _,exists:=r.dialogs[i.id];exists{return action{}}
   last:=r.last
   r.last=i.id
+  // Bare "补充下" is accepted only immediately after an OEM knowledge card.
+  // Long-form backward references may be used within the five-minute context.
   expand:=isExpand(i.text)
+  if expand && isBriefExpand(i.text) {
+   p:=r.previous
+   expand=p!=nil && p.dialogID==last && !now.Before(p.at) && now.Sub(p.at)<=60*time.Second
+  }
   r.dialogs[i.id]=&dialog{query:i.text,at:now,expand:expand}
   if len(r.dialogs)>64 {
    oldest:="";var at time.Time
