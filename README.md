@@ -2,47 +2,59 @@
 
 针对小米带屏音箱 **LX04（Android 8.1 / ARMv7）** 的原厂语音与 DeepSeek 接管项目。原厂继续负责唤醒、ASR、正常知识问答、米家设备控制和音乐；仅在匹配原厂明确拒答，或用户显式请求补充上轮知识回答时，才尝试将对应对话交给 DeepSeek。**不重签原厂 APK、不发送 BACK、不做全局静音。**
 
-> **实机状态（2026-11-04 21:18）：设备已手动禁用 XiaoNexus，原厂小爱继续运行；当前无 XiaoNexus/Frida 进程。** PR #4 的 DHCP DNS 修复已合并；20:58 Agent 已越过 DNS 阶段，但 TLS 报 `x509: certificate signed by unknown authority`。PR #5 已加入进程级 Android `SSL_CERT_DIR`，并将版本升级为 V51.5。GitHub Actions run #22 已通过，生成候选 artifact `XiaoNexus-V51.5-resident-candidate`（ID `13327885651`）；**尚未部署到设备**。不关闭 TLS 校验、不修改系统证书、不激活旧 V51.4 包。
+> **最新实机状态（2026-11-04 约 21:50，设备本地 UTC+8）：V51.5 已在 LX04 激活，用户实测语音转发 DeepSeek 正常。** Agent、Supervisor、Frida-inject 均在运行；18765 只监听 127.0.0.1，并已观察到两条本机 ESTABLISHED 连接。V51.5 包外层 SHA256、12 项内部清单、设备端 9 个运行文件哈希均已通过。当前是实机测试候选，不代表长时间稳定、冷启动、所有拒答和门铃场景均已验收。
 
-## 已确认的实机结果
+## 当前实机验收摘要
 
-| 项目 | 2026-11-04 证据与边界 |
+| 项目 | 2026-11-04 现场证据 |
 | --- | --- |
-| EFS 负载止损 | 原厂 `efs-base` 陷入 `/apm_cc` 失败重试：先前一次性定点 Hook 后，10 秒 CPU ticks **939→1**、写调用 **17,251→1**；这是修复的实测基线，不是本次常驻启动后的再次测量 |
-| 短时稳定 | 单独测试 **12 分钟**，原厂 PID 保持不变；原厂、OBSERVE_ONLY 和 `--enable` 基础功能测试完成 |
-| 此前常驻启动（16:55） | 设备端日志依次出现 `RESIDENT_START`、`EFS_ONCE_START`、`EFS_FLAGS_CONFIRMED`、`VOICE_SUPERVISOR_START`、`READY_PASS_ALL`；OEM 主进程 PID **4119**，未在那一轮观察到重启；19:14 后续激活因 DNS 环境失败，19:21 已禁用 |
-| 拒答授权 | Supervisor 日志记录 **5 次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`**，不能单凭授权日志推定每次 DeepSeek TTS 均完成 |
-| 旧版退役 | 旧 `/data/adb/lx04-deepseek/`、`/data/adb/service.d/lx04-deepseek.sh` 和已确认的 V53 旧 Frida 实验目录已通过定点清理脚本删除；设备返回 `LEGACY_SCOPED_RETIREMENT_COMPLETE` |
-| 退役备份 | 原始旧版归档保留于 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`；SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b` |
-| 门铃优先与漏答根因 | 实机只读采样：`18:07:27 IDLE/ready=True`，`18:07:30` 起 `ACTIVE/ready=False`；用户确认画面约 60 秒。源码另有 8 秒 hold，原 Supervisor 每 30 秒重试，解释了约 90 秒接管空窗。修复与安装器已合并到 main（PR #2、#3），CI #11/#13 全通过；Doorbell 候选包已生成（Actions run #13），**尚未部署到设备** |
-| DNS 启动故障（19:14） | Agent 认证请求使用 `[::1]:53` 并收到 `connection refused`；Android `net.dns1=192.168.0.254`，系统 resolver 成功解析 `account.xiaomi.com`。确认是 Agent 启动环境没有传入 DHCP DNS，不是路由器 DNS 不可用。PR #4 已合并，CI run #18 通过；新候选包尚待部署与实机验证 |
+| 版本与包 | V51.5；Doorbell 包位于 `D:\Codex\XiaoNexus\V51.5\run23-verified\doorbell` |
+| 下载包校验 | ZIP 大小 **19,579,787 bytes**；SHA256 **6ddac15a2da266af88b0b6f463b03fd4188fc7f09a37af620f3036e09bcf1b07** |
+| 内部文件 | SHA256SUMS 共 **12** 项，全部匹配；设备端映射后的 **9** 个运行文件全部匹配 |
+| 暂存清单 | 设备 staged manifest：**f42437b38a5ea64e56577254855ebfad91e99aef1ccb3761261159e927d8416a** |
+| 回滚备份 | `D:\Codex\XiaoNexus\backups\v515-pre-stage-20261104-214211\resident-before.tar.gz`；SHA256 **EF895EAC4A04CF2A94BA7FF0A3E243CAAFC0FE64D6E80E3DE33F4970C14D0F73** |
+| 当前进程 | OEM PID 4119、MIOT PID 4155；Agent PID 13816、Supervisor PID 13836、Frida-inject PID 13847 |
+| 本地接收器 | `127.0.0.1:18765` LISTEN；两条 127.0.0.1 ESTABLISHED；未监听 LAN 地址 |
+| 语音 | 用户确认语音测试中转发 DeepSeek 正常；尚不能据此宣称所有拒答、扩展、门铃、重启和长期运行场景通过 |
+| 启动 | 日志已出现 DHCP DNS、Android CA store 就绪、Agent 启动和 Supervisor 启动；Supervisor 日志出现 READY_PASS_ALL / ROUTING_RESUMED |
 
-**仍待验证：** 候选包的实机部署与门铃按铃验收、实机开机重启自动附加、OEM PID 变更后的重附加、长期运行及资源占用、网络/异常断链熔断、长回答、所有拒答变体，以及“原厂播报中途请求 DeepSeek 补充”的偶发漏拦截。短测曾 **3 次有 1 次漏拦**；门铃造成的 Supervisor 反复退出已在源码层修复，部署器已同步修正为三件套一起暂存，但设备端尚未升级，不能标记实机问题已解决。
+详细设备证据、暂存/激活过程和回滚路径见 [V51.5 实机交接](docs/RESIDENT_EFS_V51_5_HANDOFF.md) 与 [当前状态](docs/CURRENT_STATE.md)。
 
-## 当前部署与安全边界
+## 已合并的主线修复
 
-- 原厂：`com.xiaomi.micolauncher`，不修改 APK。
-- 设备端新版：`/data/adb/xiaonexus/bin/`、`frida/`、`resident/`；常驻启动入口为 `/data/adb/service.d/xiaonexus.sh`。必须使用官方 **Frida 16.6.6 android-arm**，不用 Frida 17。
-- 常驻控制：先串行执行独立、受限的 **EFS 一次性恢复**，再启动 `xiaonexus-supervisor --enable`。两个阶段不同时附加；连续失败设定熔断。禁用开关是 `/data/adb/xiaonexus/disabled`，恢复前需排查原因。
-- Agent 启动前从 Android DHCP 下发的 `net.dns1`…`net.dns4` 自动选择有效 DNS，设置进程级 `XIAOBOT_DNS_SERVER`；不写死网关/IP、不修改 Android 全局 DNS。V51.5 同时为 Go Agent 设置进程级 `SSL_CERT_DIR=/system/etc/security/cacerts`，并在存在时追加 Android 用户 CA 目录；保持 TLS 证书验证，不改系统证书。PR #5/CI 与设备验收状态见当前交接文档。
-- EFS 方案只针对**这一台 LX04 的真实原厂 APK**验证；`EFS_FLAGS_CONFIRMED` 不是所有友盟/UC/PA 采集或上报停止的证明，也不能推定所有小爱型号都有相同错误。
-- DeepSeek 接收器仅监听 `127.0.0.1:18765`；私有 Token、账号、原始 ASR、日志和备份不得提交公开仓库。
-- Windows 开发/下载/备份均在 `D:\Codex`；不要在 C 盘新增项目文件。
+- PR #1：V51.4 常驻候选、串行 EFS 恢复、熔断与回退。
+- PR #2：门铃阻止路由时保持接收器存活，Frida 进入 BLOCK / PASS-ALL，而不是反复退出。
+- PR #3：安装器同步部署 Agent、Supervisor、Frida JS 三件套。
+- PR #4：从 Android DHCP 的 net.dns1…net.dns4 自动取得 DNS，不写死路由器地址。
+- PR #5：Go Agent 进程级加载 Android 系统 CA，保持正常 TLS 证书验证；**已于 2026-11-04 合并**，merge commit `f3d1cb31038c9c82f655429d60500a99b1015db2`。
 
-## 文档与操作
+PR #1–#5 均已合并，当前没有未合并 PR。所有修复必须以匹配的 Agent、Supervisor、Frida JS 和 resident 脚本整体构建；禁止混用不同构建批次。
 
-- **[CURRENT_STATE.md](docs/CURRENT_STATE.md)**：最新实机进度与未完成验证；后续开发从这里开始。
-- [V51.5 常驻候选交接](docs/RESIDENT_EFS_V51_5_HANDOFF.md)：本轮 DNS/CA 修复、构建产物、部署门槛与回退步骤。
-- [V51.4 常驻与 EFS 历史交接](docs/RESIDENT_EFS_V51_4_HANDOFF.md)：保留此前实现、状态码和历史测试记录。
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md)：OEM 事件链、dialogId、PCM Owner、拒答话术。
-- [AUTO_BRIDGE.md](docs/AUTO_BRIDGE.md)：原厂事件到 Supervisor/Frida 的关联。
-- [VALIDATION.md](docs/VALIDATION.md)：历史验收范围和反例。
-- [LEGACY_RETIREMENT.md](docs/LEGACY_RETIREMENT.md)：旧 XiaoSeek 已完成的定点清理与备份边界。
-- [NO_GIT_TEST.md](docs/NO_GIT_TEST.md)：不安装 Windows Git 的构建包校验步骤。
-- [THIRD_PARTY.md](THIRD_PARTY.md)、[NOTICE](NOTICE)、[LICENSE](LICENSE)：第三方代码来源与许可。
+## 下一步开发计划
 
-回答 Agent 的历史依赖来自固定源码 [jarod360/xiaoai-deepseek-lx04](https://github.com/jarod360/xiaoai-deepseek-lx04/tree/5c05b9ad090f21265a440160345ed54d95e24783)；它不代表设备上仍运行旧版 XiaoSeek。
+1. **V51.5.1：统一日志时区。** Agent 的 `xiaobot.FixedZone()` 使用 UTC+8，Resident 使用 Android 设备本地时间；Supervisor 尚未设置 `time.Local`，日志比设备时间慢 8 小时。最小修复是在 Supervisor 的 `main()` 最开始设置 `time.Local = time.FixedZone("CST", 8*60*60)`。只改变 Supervisor 日志时间，不改系统时钟、语音路由、EFS、门铃或 APK。
+2. **动画独立研究：** 查找并尽量复用真实原厂 APK 的思考/加载动画，让“请稍后”后的等待阶段持续显示原生动画，DeepSeek 答案就绪后再切换到答案页和语音。此研究不改 V51.5.1 主线。
+3. **桌面闪回/空白间隔：** 优先验证原生动画能否覆盖 DeepSeek 等待期间短暂返回桌面/空白的间隔；若不能，再单独跟踪 Activity/Window 切换时序。不要先做额外 UI。
+4. 动画只有在 LX04 实机确认可加载、可持续显示、答案到达后可正常切换、TTS 不受影响时，才集成并升级 **V51.6.0**。未验证成功不得提前升版。
 
-## 版本原则
+新窗口请先读 [docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)，再读 [docs/ANIMATION_RESEARCH_HANDOFF.md](docs/ANIMATION_RESEARCH_HANDOFF.md)。V51.5.1 的时区修改与动画研究保持分离。
 
-`V51.5` 是**常驻测试候选版**，不是稳定版；当前设备仍保持禁用，候选包必须通过 CI、SHA256 核验和分阶段实机验收。只有拒答、上下文、原生功能、门铃、异常恢复、重启与回退经过实机验证，才考虑发布 `V52` 稳定版。本项目与小米、DeepSeek 无官方关联。
+## 运行与安全边界
+
+- 原厂：`com.xiaomi.micolauncher`；不修改或重签 MicoLauncher APK。
+- 设备端：`/data/adb/xiaonexus/`；开机入口：`/data/adb/service.d/xiaonexus.sh`；禁用开关：`/data/adb/xiaonexus/disabled`。
+- Frida 固定使用官方 **16.6.6 android-arm**，不用 Frida 17。
+- Agent 接收器仅监听 `127.0.0.1:18765`；不开放局域网监听。
+- 不发送 BACK、不做全局静音、不强杀原厂进程；门铃、设备控制、音乐始终原生优先。
+- Android DNS 从 DHCP 属性读取；TLS 正常验证，不关闭证书校验、不改系统证书。
+- Windows 项目、下载、临时文件和备份全部放在 `D:\Codex`；不在 C 盘创建项目文件。
+- Token、账号、原始 ASR、录音和私人设备日志不得提交公开仓库。
+
+## 版本规则
+
+- 当前实机测试基线：**V51.5**。
+- 小修复递增最后一位：**V51.5.1**、V51.5.2……
+- 完成并实机验证一个功能后递增中间位并将最后一位归零：动画功能若成功集成，目标 **V51.6.0**。
+- V51.5 仍是实机测试候选，不是稳定版；不要将其描述为 V52 稳定版。
+
+项目与小米、DeepSeek 无官方关联。
