@@ -1,6 +1,6 @@
 # XiaoNexus LX04：当前实机状态（2026-11-04）
 
-> **当前状态（2026-11-04 19:21）：XiaoNexus 已手动禁用，原厂小爱仍运行；Agent 启动失败的根因已定位为未继承 Android DHCP DNS，修复正在 PR #4 中，尚未部署/验收。** 本文优先记录用户 LX04 的现场证据；旧版 V51.2 资源归因历史另见交接文档与 Git 历史。项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
+> **当前状态（2026-11-04 19:21）：XiaoNexus 已手动禁用，原厂小爱仍运行；Agent 启动失败的根因已定位为未继承 Android DHCP DNS，DNS 自动获取修复已通过 PR #4 合并到 main、CI run #18 成功并生成候选包；尚未部署/验收。** 本文优先记录用户 LX04 的现场证据；旧版 V51.2 资源归因历史另见交接文档与 Git 历史。项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
 
 ## 当前实机运行
 
@@ -105,7 +105,7 @@
 
 先读本文件及 [RESIDENT_EFS_V51_4_HANDOFF.md](RESIDENT_EFS_V51_4_HANDOFF.md)，再核实设备现有日志和实际 PID。旧 [ARCHITECTURE.md](ARCHITECTURE.md)、[AUTO_BRIDGE.md](AUTO_BRIDGE.md)、[VALIDATION.md](VALIDATION.md) 保存此前的设计证据与反例；不要重新从 V48/V50 过时实验归因。
 
-**版本判定：** V51.4 常驻启动链路已通过，长期稳定、门铃实际抢占、冷重启与 expand 漏拦截仍在验证；不能称 V52 稳定版。
+**版本判定：** 16:55 的早期 V51.4 常驻启动曾通过；19:14 run13 新 Agent 因 DNS 环境失败，当前已禁用。PR #4 的 DNS 修复已合并且 CI 通过，待新候选包实机验证。长期稳定、门铃实际抢占、冷重启与 expand 漏拦截仍在验证；不能称 V52 稳定版。
 
  
 ## 2026-11-04 19:14：Agent 启动 DNS 故障（已定位，修复待部署）
@@ -129,7 +129,7 @@
 
 runtime/device-agent/main.go 调用 runtimeenv.ConfigureDNSFromEnv()。该函数仅在环境变量 XIAOBOT_DNS_SERVER 非空时设置 Go 进程内的 DNS Resolver；为空时返回 nil，Go 随后使用 Android 进程环境下的默认解析器，现场实际落到错误的 [::1]:53。旧版 device-run.sh 曾从 Android net.dns1 读取 DNS 并设置该变量；V51.4 的 resident.sh 迁移时遗漏了这一段。
 
-### PR #4 中的修复设计
+### PR #4 已合并到 main（CI 通过，设备待部署）
 
 - 分支：fix/manifest-newline-printf-20261104；PR：https://github.com/jarod360/XiaoNexus/pull/4。
 - 在 resident.sh 启动 Agent 前，自动按顺序读取 Android 的 net.dns1、net.dns2、net.dns3、net.dns4，选择第一个有效、非 loopback 的 IP。
@@ -140,10 +140,10 @@ runtime/device-agent/main.go 调用 runtimeenv.ConfigureDNSFromEnv()。该函数
 
 ### 下一步验收
 
-1. 等 PR #4 CI 通过并下载该次构建的完整 candidate artifact；不要重新激活旧 run13 包。
+1. 从 Actions run #18 下载完整 `XiaoNexus-V51.4-resident-candidate` artifact；核对 ZIP SHA256 为 `4f495e960999b94a8787d0adfd23d92ded4f9ccb4b6cc4402f209db866d71fdc`。不要重新激活旧 run13 包。
 2. 使用新 artifact 暂存；保持 disabled，核对设备 resident.sh 含有 DHCP DNS 读取逻辑及 manifest 摘要一致。
 3. 激活后先只读检查 resident-status.log 应出现 ANDROID_DNS_READY → AGENT_LAUNCH_REQUESTED；agent-last.log 不应再出现 lookup ... on [::1]:53。
 4. 确认 Agent PID 存在、端口 18765 监听、Supervisor 出现 READY_PASS_ALL，再做一条拒答接管测试。
 5. 路由器 DNS 由 DHCP 自动下发；换路由器/DHCP DNS 时，下一次 Agent 启动会重新读取系统属性。当前实现不在 Agent 运行中热切换 DNS；若网络/DNS 改变，需要通过常规安全重启 XiaoNexus 让它重新读取。
 
-**当前设备保持禁用状态。DNS 修复尚未实机验收，不能标记为已解决。**
+**当前设备保持禁用状态。PR #4 已合并且 CI 通过，但 DNS 修复尚未实机验收，不能标记为已解决。**
