@@ -150,12 +150,5 @@ $manifestHash = (Get-FileHash -LiteralPath $checksums -Algorithm SHA256).Hash.To
 Root ("printf '%s\\n' '" + $manifestHash + "' > /data/adb/xiaonexus/resident/staged-package.sha256 && chmod 600 /data/adb/xiaonexus/resident/staged-package.sha256") | Out-Null
 Write-Host "DEVICE_STAGE_MANIFEST=$manifestHash"
 Write-Host "RESIDENT_STAGED; OEM_PID=$oem; legacy preserved"
-if ($Activate) {
-    Root 'rm -f /data/adb/xiaonexus/disabled' | Out-Null
-    Root 'sh /data/adb/service.d/xiaonexus.sh' | Out-Null
-    Write-Host "RESIDENT_ACTIVATION_REQUESTED"
-    Write-Host "Verify /data/adb/xiaonexus/diag/resident-status.log and real voice behavior."
-} else {
-    Write-Host "Staged only; rerun with -Activate after review."
-}
+Write-Host "Staged only; review the device files, then run this exact package with -Activate."
 Write-Host "Rollback switch: rerun -Disable; backups remain in $backup"
