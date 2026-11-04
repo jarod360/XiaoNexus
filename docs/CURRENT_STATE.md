@@ -17,6 +17,16 @@
 
 **当前设备上的 Agent 未因这次安装而替换。** V51.4 候选升级的是 Supervisor、Frida JS 与常驻相关脚本，原有 Doorbell Agent 的 `doorbellGuard` 未变：通过 `127.0.0.1:7979/state` 检测 `doorbell-shared-live`，门铃优先于待播的 DeepSeek 回答。代码层面未改动，**真实按铃、三端弹窗和抢占尚未再次验收**。
 
+## 2026-11-04 新证据：门铃附近的接收器健康失败与反复重附加
+
+用户提供的 `resident-status.log`、`supervisor-last.log` 说明：**17:08:03、17:23:56、17:27:10** 三次 `answer receiver unavailable; detach and fail-open`，每次紧接着约每 30 秒重试，至少两次出现 `answer receiver unhealthy; no injection`，随后于 **17:09:39、17:25:34、17:28:46** 分别重新 `READY_PASS_ALL`。后续 **17:37:44** 再出现 `ARM_REFUSAL_ACCEPTED`，说明最后一次已恢复接管通路。
+
+**已确认的软件链：** `runtime/device-supervisor/main.go` 的 `healthy()` 对 `127.0.0.1:18765/v1/health` 返回 false 后，当前 `--enable` Supervisor 在 5 秒巡检中主动退出；`runtime/device-resident/resident.sh` 把这类失败单独退避 30 秒后重启。每次新 Supervisor 会创建新的 `router`，失去上一轮知识上下文，所以即使语音识别正确也可能漏掉 `expand` 关联。
+
+**可能原因但尚未区分：** Doorbell Agent 的 `/v1/health` 因 `127.0.0.1:7979/state` 显示 `doorbell-shared-live`、事件后 8 秒保护期、HTTP 异常/空数据而返回 `ready=false`；也可能是 `18765` 接收器暂时不可用、响应超时、授权/响应异常。旧版健康结果把所有情况聚合成一个布尔值，因此这份日志**不能证明是正常门铃抢占、门铃状态接口不稳定或其他接收器故障**。用户主观观察门铃与漏答同时出现，是应优先验证的时间关联，不是已证实因果。
+
+**下一步最小验证：** 在真实门铃触发前后只读采样 `7979/state` 的 HTTP 可用性、是否有 `doorbell-shared-live`，以及授权后的 `18765/v1/health` 的 `ready/mode`；禁止保存完整 popup 元数据、口令、ASR 原文。**在分清健康失败来源前不要修改 Doorbell 抢占或取消 fail-open。**
+
 ## 开发主线：持续测试和漏拦截
 
 1. **保持现有常驻不变**，正常使用观察一段时间，不重复安装或多开 Frida。
