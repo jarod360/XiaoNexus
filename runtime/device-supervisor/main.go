@@ -161,37 +161,45 @@ func (r *router) gate(id string)action {
  return action{kind:"refusal",id:id,query:d.query}
 }
 
-type client struct{ token string; http *http.Client}
-func(c *client) request(ctx context.Context, path string, body interface{})bool {
- var reader io.Reader
- method:=http.MethodGet
- if body!=nil {
-  buf,err:=json.Marshal(body);if err!=nil{return false}
-  reader=bytes.NewReader(buf);method=http.MethodPost
- }
- req,err:=http.NewRequestWithContext(ctx,method,receiver+path,reader)
- if err!=nil{return false}
- req.Header.Set("Authorization","Bearer "+c.token)
- if body!=nil {req.Header.Set("Content-Type","application/json")}
- res,err:=c.http.Do(req);if err!=nil{return false}
- defer res.Body.Close()
- if body==nil {
-  if res.StatusCode!=http.StatusOK{return false}
-  var status struct{Ready bool `json:"ready"`;NoGlobalMute bool `json:"no_global_mute"`}
-  if json.NewDecoder(io.LimitReader(res.Body,4096)).Decode(&status)!=nil{return false}
-  return status.Ready&&status.NoGlobalMute
- }
- return res.StatusCode==http.StatusAccepted
+type client struct{ token string; http *http.Client }
+
+type receiverStatus struct {
+ Healthy bool `json:"healthy"`
+ Ready bool `json:"ready"`
+ RoutingBlocked bool `json:"routing_blocked"`
+ NoGlobalMute bool `json:"no_global_mute"`
 }
-func(c *client) healthy()bool {
+
+func (s receiverStatus) alive() bool {
+ return s.Healthy && s.NoGlobalMute
+}
+func (s receiverStatus) routeReady() bool {
+ return s.alive() && s.Ready && !s.RoutingBlocked
+}
+func (c *client) status() (receiverStatus, bool) {
  ctx,cancel:=context.WithTimeout(context.Background(),900*time.Millisecond);defer cancel()
- return c.request(ctx,"/v1/health",nil)
+ req,err:=http.NewRequestWithContext(ctx,http.MethodGet,receiver+"/v1/health",nil)
+ if err!=nil{return receiverStatus{},false}
+ req.Header.Set("Authorization","Bearer "+c.token)
+ res,err:=c.http.Do(req);if err!=nil{return receiverStatus{},false}
+ defer res.Body.Close()
+ if res.StatusCode!=http.StatusOK{return receiverStatus{},false}
+ var status receiverStatus
+ if json.NewDecoder(io.LimitReader(res.Body,4096)).Decode(&status)!=nil{return receiverStatus{},false}
+ return status,true
 }
 func(c *client) submit(a action)bool {
  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
  body:=map[string]string{"kind":a.kind,"dialog_id":a.id,"query":a.query}
  if a.kind=="expand" {body["native_answer"]=a.answer}
- return c.request(ctx,"/v1/query",body)
+ buf,err:=json.Marshal(body);if err!=nil{return false}
+ req,err:=http.NewRequestWithContext(ctx,http.MethodPost,receiver+"/v1/query",bytes.NewReader(buf))
+ if err!=nil{return false}
+ req.Header.Set("Authorization","Bearer "+c.token)
+ req.Header.Set("Content-Type","application/json")
+ res,err:=c.http.Do(req);if err!=nil{return false}
+ defer res.Body.Close()
+ return res.StatusCode==http.StatusAccepted
 }
 func oemPID() (int,error) {
  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
