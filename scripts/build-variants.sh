@@ -41,7 +41,7 @@ for flavor in standard doorbell; do
     '4. Resident service is OPT-IN; review Install_Resident_LX04.ps1 and use -Activate.' \
     '5. Preserve old install until reboot, failure recovery and rollback are independently verified.' \
     > "$PKG/README_TEST.txt"
-  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 Retire_Legacy_LX04.ps1 > SHA256SUMS)
+  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 Retire_Legacy_LX04.ps1 HANDOFF.md > SHA256SUMS)
   tar -czf "$OUT/XiaoNexus-$VERSION-LX04-$flavor-armv7.tar.gz" -C "$PKG" .
 done
 cd "$OUT"
