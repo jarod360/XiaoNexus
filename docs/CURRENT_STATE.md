@@ -1,6 +1,6 @@
 # XiaoNexus LX04：当前实机状态（2026-11-04）
 
-> **V51.4 Doorbell 常驻测试阶段，尚未完成长期与冷重启验收。** 本文优先记录已经在用户 LX04 上确认的结果；旧版 V51.2 的资源归因历史另见交接文档与 Git 历史。项目仍使用真实原厂 APK；不再把不同版本的 OpenMico 代码当作真值。
+> **当前状态（2026-11-04 19:21）：XiaoNexus 已手动禁用，原厂小爱仍运行；Agent 启动失败的根因已定位为未继承 Android DHCP DNS，修复正在 PR #4 中，尚未部署/验收。** 本文优先记录用户 LX04 的现场证据；旧版 V51.2 资源归因历史另见交接文档与 Git 历史。项目以真实原厂 APK 为准，不用不同版本 OpenMico 代码替代。
 
 ## 当前实机运行
 
@@ -8,14 +8,14 @@
 | --- | --- |
 | 设备 | LX04 Android 8.1 / ARMv7；ADB `192.168.0.192:5555` 正常连接 |
 | 原厂 | `com.xiaomi.micolauncher` PID **4119**，用户最后一次 `ps` 为休眠状态（非 `ptrace_stop`）；`:miot` PID **4155** |
-| 新版语音 | `xiaonexus-supervisor` PID **27312**、`frida-inject` PID **27322**、`xiaonexus-agent` PID **32719**；本轮进程列表只有一组 |
-| V51.4 常驻启动 | 设备日志 2026-11-04 16:55:16 `RESIDENT_START` 与 `EFS_ONCE_START`；16:55:27 `EFS_FLAGS_CONFIRMED`、`VOICE_SUPERVISOR_START` |
+| 当前新版语音 | 2026-11-04 19:21 已执行 `-Disable`；最新 `ps` 仅有 OEM PID **4119** 与 `:miot` PID **4155**，无 `xiaonexus-*` / `frida-*` 进程 |
+| V51.4 常驻启动 | 16:55 首轮曾成功启动并出现 `READY_PASS_ALL`；19:13 再次激活后，19:14 `EFS_FLAGS_CONFIRMED`、`AGENT_LAUNCH_REQUESTED`，但 Agent 认证失败、Supervisor 立即退出。19:21 已禁用，不能把早先成功状态当作当前运行状态 |
 | Frida 状态 | Supervisor 日志 `XiaoNexus injector READY_PASS_ALL`，以及 **5 条** `XIAONEXUS_ARM_REFUSAL_ACCEPTED`，说明五次拒答授权接受；**尚未逐次验证 DeepSeek 播报成功** |
 | EFS 历史实测 | 定点 `/apm_cc` 一次性修复后，10 秒 `efs-base` CPU **939→1 ticks**、写调用 **17,251→1**，PID 没变。本次 V51.4 常驻日志已确认标志设为 false，**仍需新取 /proc 数据证实持续低负载** |
 | 旧版清理 | 用户运行 `Retire_Legacy_LX04.ps1 -Commit`，设备输出 `LEGACY_SCOPED_RETIREMENT_COMPLETE`。旧 `lx04-deepseek`、旧开机入口、已指定 V53 Frida 实验目录按精确路径清理 |
 | D 盘备份 | `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`，SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`；安装前两份 Supervisor/Gate 备份也保留 |
 
-**当前设备上的 Agent 未因这次安装而替换。** V51.4 候选升级的是 Supervisor、Frida JS 与常驻相关脚本，原有 Doorbell Agent 的 `doorbellGuard` 未变：通过 `127.0.0.1:7979/state` 检测 `doorbell-shared-live`，门铃优先于待播的 DeepSeek 回答。代码层面未改动，**真实按铃、三端弹窗和抢占尚未再次验收**。
+**run13 候选包已替换/暂存 Agent、Supervisor、Frida JS 与常驻脚本；但新 Agent 因 DNS 环境未配置而在小米认证阶段退出。** 随后用户执行 `-Disable`，当前没有 XiaoNexus/Frida 进程。Agent 原有 Doorbell Guard 代码未改：通过 `127.0.0.1:7979/state` 检测 `doorbell-shared-live`，门铃优先于待播 DeepSeek 回答。此次 DNS 修复不修改门铃守护、EFS Hook 或 OEM APK。
 
 ## 2026-11-04 新证据：门铃附近的接收器健康失败与反复重附加
 
@@ -106,3 +106,44 @@
 先读本文件及 [RESIDENT_EFS_V51_4_HANDOFF.md](RESIDENT_EFS_V51_4_HANDOFF.md)，再核实设备现有日志和实际 PID。旧 [ARCHITECTURE.md](ARCHITECTURE.md)、[AUTO_BRIDGE.md](AUTO_BRIDGE.md)、[VALIDATION.md](VALIDATION.md) 保存此前的设计证据与反例；不要重新从 V48/V50 过时实验归因。
 
 **版本判定：** V51.4 常驻启动链路已通过，长期稳定、门铃实际抢占、冷重启与 expand 漏拦截仍在验证；不能称 V52 稳定版。
+
+ 
+## 2026-11-04 19:14：Agent 启动 DNS 故障（已定位，修复待部署）
+
+### 设备现场证据
+
+- Agent 日志：
+  ~~~text
+  Get "https://account.xiaomi.com/pass/serviceLogin?sid=micoapi&_json=true":
+  dial tcp: lookup account.xiaomi.com on [::1]:53:
+  read udp [::1]:...->[::1]:53: read: connection refused
+  Xiaomi authentication failed
+  ~~~
+- Android DHCP / Connectivity：getprop net.dns1=192.168.0.254；dumpsys connectivity 显示 Wi-Fi 已 CONNECTED、VALIDATED，DnsAddresses 为 192.168.0.254。
+- ip -4 route get 1.1.1.1 显示经 192.168.0.254、wlan0 出口；ip -4 route show default 无输出是因为设备使用按接口路由表，不代表无默认路由。
+- Android 系统 resolver 测试成功将 account.xiaomi.com 解析为 111.206.191.166，ping 收到响应（71.9 ms）。设备没有 nslookup，因此这不是独立的 DNS 服务器直连测试；但已证明 Android resolver 正常。
+- Agent 文件、配置、Token 文件存在；Token 文件 65 bytes（64 hex + newline）正常；18765 无监听。
+- 19:21 用户执行 -Disable 后，进程列表只剩 OEM PID 4119 和 MIOT PID 4155；XiaoNexus/Frida 均停止，原厂小爱保持运行。
+
+### 根因
+
+runtime/device-agent/main.go 调用 runtimeenv.ConfigureDNSFromEnv()。该函数仅在环境变量 XIAOBOT_DNS_SERVER 非空时设置 Go 进程内的 DNS Resolver；为空时返回 nil，Go 随后使用 Android 进程环境下的默认解析器，现场实际落到错误的 [::1]:53。旧版 device-run.sh 曾从 Android net.dns1 读取 DNS 并设置该变量；V51.4 的 resident.sh 迁移时遗漏了这一段。
+
+### PR #4 中的修复设计
+
+- 分支：fix/manifest-newline-printf-20261104；PR：https://github.com/jarod360/XiaoNexus/pull/4。
+- 在 resident.sh 启动 Agent 前，自动按顺序读取 Android 的 net.dns1、net.dns2、net.dns3、net.dns4，选择第一个有效、非 loopback 的 IP。
+- IPv4 设置为 IP:53；IPv6 设置为 [IP]:53，匹配 runtimeenv.ConfigureDNSFromEnv() 的 net.SplitHostPort / literal-IP 要求。
+- 最多等待 120 秒让 Wi-Fi/DHCP 属性就绪；成功记录 ANDROID_DNS_READY 后再启动 Agent；没有有效 DNS 时记录 ANDROID_DNS_UNAVAILABLE_RETRY_LATER，不启动 Agent、不触发小米认证重试。
+- 不写死路由器地址、不假定网关一定提供 DNS、不修改 Android 全局 DNS、不改 Agent 二进制、EFS 或门铃守护。
+- 同一 PR 也修复安装器写入 staged manifest 时的 printf 换行转义错误，避免再次产生 66 字符摘要。
+
+### 下一步验收
+
+1. 等 PR #4 CI 通过并下载该次构建的完整 candidate artifact；不要重新激活旧 run13 包。
+2. 使用新 artifact 暂存；保持 disabled，核对设备 resident.sh 含有 DHCP DNS 读取逻辑及 manifest 摘要一致。
+3. 激活后先只读检查 resident-status.log 应出现 ANDROID_DNS_READY → AGENT_LAUNCH_REQUESTED；agent-last.log 不应再出现 lookup ... on [::1]:53。
+4. 确认 Agent PID 存在、端口 18765 监听、Supervisor 出现 READY_PASS_ALL，再做一条拒答接管测试。
+5. 路由器 DNS 由 DHCP 自动下发；换路由器/DHCP DNS 时，下一次 Agent 启动会重新读取系统属性。当前实现不在 Agent 运行中热切换 DNS；若网络/DNS 改变，需要通过常规安全重启 XiaoNexus 让它重新读取。
+
+**当前设备保持禁用状态。DNS 修复尚未实机验收，不能标记为已解决。**
