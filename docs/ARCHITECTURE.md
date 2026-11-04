@@ -1,32 +1,18 @@
-# 架构与真实事件归属
+# XiaoNexus 架构：真实 OEM 事件与精确门控
 
-## 1. 来源与边界
+**适用范围：** 单台 LX04 / Android 8.1 / ARMv7；基于实际原厂 `MicoLauncher.apk` 的类与函数，不用 OpenMico 类比。当前 V51.2 Doorbell 已实机成功一次自动拒答接管，但尚未证明所有话术、重启及长时稳定。当前调查入口见 [CURRENT_STATE.md](CURRENT_STATE.md)。
 
-不修改 MicoLauncher.apk、固件分区和 MIoT 设备动作。实验只在 OEM 主进程（不是 com.xiaomi.micolauncher:miot）加载 Frida 16.6.6 Java Hook，默认全部透传。原厂 ASR 和原厂云端 NLP 先处理，每个对话通过真实 Event 中的 **dialogId** 关联；不是基于用户输入关键词决定回答模型。
+## 当前数据流
 
-## 2. 事件链
+1. 原厂完成唤醒、ASR、云端 NLP 与原生设备处理。`MICO.cap` 的 `SpeechRecognizer.RecognizeResult(is_final=true)` 提供原话与 `dialog_id`；`SpeechRecognizer.Recognize` 确定原生事件来源。`System.Ack` 可能共用 ID，但**不得覆盖真正的 Recognize 来源**。
+2. `runtime/device-supervisor/main.go` 用 `parseOEM`、`router.feed` 关联最终 ASR 和上一轮知识卡。只有 `--enable` 且接收器健康才向 Frida 发送指定 `dialogId` 的 `ARM` 或显式 `ARMEXP`。
+3. `runtime/frida/lx04_nexus_gate.js` 检查 `SpeechSynthesizer.Speak` 是否为八条精确拒答之一；来源、ID、Owner、播放模式、codec、旧任务结束、并发和时间窗口均需符合条件，否则 **PASS ALL**。
+4. 对真正被接受的 Owner，仅阻止非空 PCM 进入 `Task.a([B)`；空数组 EOF、其他 `SpeechSynthesizer.Synthesize`（包括独立 DeepSeek TTS）正常放行。`Template.Toast` 经 `TemplateToastOperation.a(boolean,String)` 和 `AsrTtsCard.onTtsRequest(String)` 精确关联，必要时显示“请稍后……”并异步请求关闭（约 1.5 秒）；**不发 BACK、不全局静音**。
+5. Owner 门控成功后，`gate_accepted` 通知 Supervisor 以同一 `dialogId` 调用 `127.0.0.1:18765/v1/query`。`xiaonexus-agent` 经 DeepSeek 得到答案，先启动原厂 `BaikeTextActivity` 全屏显示，再通过小米 RC4 MIoT TTS 播报。
 
-~~~text
-SpeechRecognizer.Recognize (原始 dialogId)
-    ├── 原厂正常结果/设备动作 → 原厂显示与原厂 TTS，无操作
-    └── 原厂拒答指令
-        ├── Template.Toast → TemplateToastOperation.a(boolean,String)
-        │    └── 同步 AsrTtsCard.onTtsRequest(String)
-        │        └── 仅同一 dialogId + 8 种精确全文 → "请稍后"
-        │                                   └── 1500ms 后请求 dismissForce()
-        └── SpeechSynthesizer.Speak → SDK 播放 task/Owner
-             └── 仅 Recognize + 同 dialogId + 精确拒答 → 丢弃非空 PCM
-                  ├── EOF 保留供 task 正常结束
-                  └── 独立 SpeechSynthesizer.Synthesize/DeepSeek TTS 完整透传
-    ↓
-现有 Agent: 用同一段 ASR 内容向 DeepSeek 发问
-    ↓
-小米原生 MIoT TTS + BaikeTextActivity 全屏滚动（来自设备实机既有方案）
-~~~
+**新旧隔离：** 旧 `lx04-agent` 的 ASR 关键词分流和全局 AudioGate 不参与新链路；两版不可同时运行。设备端新 `frida-inject 16.6.6` 无需旧 `frida-server` 作为执行前提。测试完成必须干净 detach。
 
-SDK 的 System.Ack、Wakeup、其它事件可能共享 dialogId；**System.Ack 不得覆盖原始 Recognize 的来源归属**。来源冲突、一致性无法证实、未知文字、无授权、过期、未识别的媒体播放，一律选择原厂放行（fail-open）。这避免依赖早期与实际固件不一致的 OpenMico 实现。
-
-## 3. 8 条完整拒答白名单
+## 实际确认的八条拒答全文
 
 1. 被你问住了，看来要更努力学习了
 2. 这个问题我暂时还回答不上，需要再学习一下
@@ -37,26 +23,18 @@ SDK 的 System.Ack、Wakeup、其它事件可能共享 dialogId；**System.Ack �
 7. 被难住了诶，看来我还要再学习一下
 8. 对不起，我还在学习中！
 
-**只做完整句子精确匹配**，只规范不同逗号、叹号和空格；不能用“我还”“回答”“不会”子串做拦截，否则会误伤普通回答或设备提示。当前八条不保证覆盖未来所有服务器变体。
+只允许规范空白、逗号与叹号后**全文匹配**。普通 Toast、音乐会员提醒、计算器、米家提示均不能因含“不会”或“学习”被误判。此清单仅覆盖历史真实样本，不等于未来云端话术全集。
 
-## 4. Frida 门控、旧 Agent 和新 Agent 的关系
+## 显式完善上轮回答（未通过实机）
 
-v50.2 = 在原厂 OEM 进程中单轮手工 ARM 的实验层（6 个音频 Hook + 2 个 UI Hook），可以通过 STATUS 查看状态。它没有单独完成账号登录、ASR 转发、DeepSeek API 请求或自动常驻。
+上轮必须是同 `dialogId` 的 `Template.General`，且 `payload.skill_icon.description` 精确为“智能问答”；保存**原问题 + 原答**。下一轮口令需要明确指代“上轮回答”，在可关联时发出 `ARMEXP`，该轮原厂 Speak 安全门控成功才提交 DeepSeek 重新回答原问题。首次实机仅观察到“请稍后”、`mode=expand=0`，上一轮还被中途唤醒打断；可能与普通拒答路径混淆，**不能标已实现成功**。
 
-旧 GitHub 源码包括 XiaoMi 认证、RC4 MIoT TTS、DeepSeek 搜索/回答、logcat ASR 监听、**NativeRequest 关键词路由**和 **AudioGate master-mute**；这不是新架构的最终自动执行器。
+## 已知安全与性能边界
 
-设备上此前运行的 Agent 已验证全屏答案、自动滚动、独立 TTS、语音不中断，但**其确切部署源码与公开旧 GitHub 主分支尚未逐字校验**。不能悄悄用公开旧版本覆盖设备已验证的二进制。
+- 原厂 Toast 可能先于 Speak：文字已替换，但后续 PCM Owner 安全门控失败时可能漏出原音。失配、来源不明、时限失效或并发冲突一律 fail-open。
+- 单 Owner 非空 PCM 受 8 秒和 2.5 MB 限制；超过上限放行，不能保证任何长拒答绝对静音。
+- `dismissForce()` 为请求，不是屏幕消失证明；必须以用户看到的结果验收。
+- 高频 `Task.a([B)` Hook 每包执行 JS Owner 关联与计数，**是待测量的潜在性能点而非已证实根因**。同一时间还要检查 OEM `efs-base`、`MiVpmService`、`logd` 的异常负载。
+- 任何凭据、Token、对话与原始日志只保存在设备私有目录或 Windows `D:\Codex`，不能加入公开仓库。
 
-**未完成项**：一个不再按 ASR 关键词提前抢答、只在原厂拒答出现后才转发同一 ASR 的自动状态机；无人工 ARM 的工作流、会话去重与跨进程通信/同 ID 传输、失败回滚与长时间稳定性测试。完成以前必须清楚标注“实验版”。
-
-## 5. BACK 与 UI
-
-早期为了消除“我还不会”等底部文字，我们自己尝试过 shell input、BACK、uinput；这些方法可能误关闭全屏页面或影响 TTS。v50.2 **不需要 BACK**，改为在 Toast 同步卡片请求处处理，定时只请求该等待卡片 dismissForce()。没有必要把旧 BACK 清除功能迁入新运行时代码。
-
-## 6. 设计风险
-
-- Toast 可能先于 Speak；文字已替换后，如果后续 PCM 因 codec、并发或安全条件不足而 fail-open，不能保证零漏音。
-- 8 秒和 2.5MB PCM 门控上限：超限可能漏音。
-- dismissForce 是异步请求，无法从计数直接证明屏幕清空；本次用户实机视觉验证已补充一个成功样本。
-- 用户自己的 ASR、云端 DeepSeek、原生 MIoT 登录和搜索有个人数据与网络成本；一律不记录 API Key、Token 到公开测试数据。
-- “原生优先”是由真实 OEM 响应决策，不是简单词表：设备控制、天气、音乐及未知提示默认原厂。
+成功/失败边界与下一轮分析见 [VALIDATION.md](VALIDATION.md) 与 [CURRENT_STATE.md](CURRENT_STATE.md)。
