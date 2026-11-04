@@ -7,6 +7,17 @@ param(
 $ErrorActionPreference = "Stop"
 $adb = "D:\Codex\platform-tools\adb.exe"
 if (!(Test-Path -LiteralPath $adb)) { throw "ADB missing under D:\Codex" }
+# A wireless ADB device may disappear from the host's device list between
+# test sessions. Reconnect explicitly before any root/device modification.
+$serialPattern = '(?m)^' + [regex]::Escape($Device) + '\s+device(?:\s|$)'
+$listed = (& $adb devices -l) -join "`n"
+if ($listed -notmatch $serialPattern) {
+    & $adb connect $Device | Out-Null
+    $listed = (& $adb devices -l) -join "`n"
+}
+if ($listed -notmatch $serialPattern) {
+    throw "ADB_DEVICE_OFFLINE: $Device not connected. Check wireless ADB port 5555, IP and device authorization; nothing was installed."
+}
 function Adb([string]$command) {
     $output = @(& $adb -s $Device shell $command)
     if ($LASTEXITCODE -ne 0) { throw "ADB command failed" }
