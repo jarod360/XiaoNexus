@@ -119,7 +119,7 @@ func TestBriefExpansionRequiresRecentKnowledge(t *testing.T){
  a,b,c:=strings.Repeat("a",32),strings.Repeat("b",32),strings.Repeat("c",32)
  now:=time.Unix(500,0)
  r:=newRouter(func()time.Time{return now})
- if !isExpand("补充下")||!isExpand("再详细点"){t.Fatal("brief intent missing")}
+ if !isExpand("补充下")||!isExpand("再详细点")||!isExpand("展开讲讲"){t.Fatal("brief intent missing")}
  r.feed(instruction{"asr",a,"什么是黑洞"})
  r.feed(instruction{"knowledge",a,"时空区域"})
  now=now.Add(20*time.Second)

@@ -121,6 +121,7 @@ class OEMRouterTest(unittest.TestCase):
         r = SessionRouter(clock=lambda: now[0])
         self.assertTrue(is_brief_expand('请补充下'))
         self.assertTrue(is_brief_expand('再详细点'))
+        self.assertTrue(is_brief_expand('展开讲讲'))
         r.feed(Instruction('asr', A, '什么是黑洞'))
         r.feed(Instruction('knowledge', A, '时空区域'))
         now[0] += 20

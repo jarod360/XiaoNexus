@@ -42,8 +42,13 @@ var priorReferences = []string{
 var answerObjects = []string{
  "回答","答案","问题","问答","解释","内容","说的","讲的","那段","知识",
 }
+// Never preempt a compound device/music instruction to answer a follow-up.
+var nativeActions = []string{
+ "开灯","关灯","打开","关闭","播放","暂停","停止播放","音量",
+ "下一首","上一首","退出","闹钟","定时","设置","门铃","米家","空调",
+}
 var shortExpandPattern = regexp.MustCompile(
- "^(再)?(补充|完善|补全|展开|详细|细讲|细说|讲详细|说详细|详细讲|详细说|讲清楚|说清楚|重新回答|重新解释|多讲|接着讲)(一下|下|一点|点|一些|些|一遍|吧)?$",
+ "^(再)?(补充|完善|补全|展开|展开讲讲|详细|细讲|细说|讲详细|说详细|详细讲|详细说|讲清楚|说清楚|重新回答|重新解释|多讲|接着讲)(一下|下|一点|点|一些|些|一遍|吧)?$",
 )
 func canon(s string) string {
  return strings.Map(func(r rune) rune {
@@ -68,7 +73,7 @@ func isBriefExpand(s string)bool {
 }
 func isExpand(s string) bool {
  n:=canon(s)
- if n==""||len([]rune(n))>60||strings.HasSuffix(n,"怎么样") {return false}
+ if n==""||len([]rune(n))>60||strings.HasSuffix(n,"怎么样")||hasAny(n,nativeActions) {return false}
  if isBriefExpand(s) {return true}
  return hasAny(n,expandActions)&&hasAny(n,priorReferences)&&hasAny(n,answerObjects)
 }

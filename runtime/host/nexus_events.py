@@ -36,8 +36,12 @@ PRIOR_REFERENCES = (
 ANSWER_OBJECTS = (
     '回答', '答案', '问题', '问答', '解释', '内容', '说的', '讲的', '那段', '知识',
 )
+NATIVE_ACTIONS = (
+    '开灯', '关灯', '打开', '关闭', '播放', '暂停', '停止播放', '音量',
+    '下一首', '上一首', '退出', '闹钟', '定时', '设置', '门铃', '米家', '空调',
+)
 SHORT_PATTERN = re.compile(
-    r'^(?:再)?(?:补充|完善|补全|展开|详细|细讲|细说|讲详细|说详细|详细讲|详细说|讲清楚|说清楚|重新回答|重新解释|多讲|接着讲)(?:一下|下|一点|点|一些|些|一遍|吧)?$'
+    r'^(?:再)?(?:补充|完善|补全|展开|展开讲讲|详细|细讲|细说|讲详细|说详细|详细讲|详细说|讲清楚|说清楚|重新回答|重新解释|多讲|接着讲)(?:一下|下|一点|点|一些|些|一遍|吧)?$'
 )
 PREFIXES = ('请你', '请', '帮我', '给我', '小爱同学', '小爱', '让deepseek', 'deepseek', '你')
 
@@ -61,7 +65,8 @@ def is_refusal(text: str) -> bool:
 
 def is_expand_command(query: str) -> bool:
     text = canon_intent(query)
-    if not text or len(text) > 60 or text.endswith('怎么样'):
+    if (not text or len(text) > 60 or text.endswith('怎么样')
+            or any(token in text for token in NATIVE_ACTIONS)):
         return False
     return (is_brief_expand(query)
             or (any(token in text for token in EXPAND_ACTIONS)
