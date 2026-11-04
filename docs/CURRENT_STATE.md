@@ -33,7 +33,26 @@
 
 所以当前最合理、源码和采样均支持的结论是：**门铃优先策略本身生效，但健康状态语义错误地把短时路由阻止升级成 Supervisor/Frida 整体退出，放大成约 90 秒接管空窗。** 历史故障与门铃时段的逐次精确对应仍需对应时间的门铃事件日志确认；但本次采样已经复现 ACTIVE → ready=false 的直接关系。
 
-#### 最小修复设计（尚未部署到设备）
+#### 修复已合并（源码完成，设备尚未部署）
+
+2026-11-04 已通过 PR #2 合并至 `main`：
+
+- PR: https://github.com/jarod360/XiaoNexus/pull/2
+- Merge commit: `2d56ad9284a807edec5181174e2be88a4c72be6a`
+- GitHub Actions run #11：**success**。通过 Frida JS 语法与回归套件、Shell/PowerShell 语法检查、两个 ARMv7 构建和 Go tests。
+- 回归新增：Hook 初始 BLOCK、BLOCK 释放当前 PCM owner 为 pass-through、UNBLOCK 恢复、门铃阻止路由但 receiver 仍 alive、旧版 health JSON 不可误通过新协议。
+
+实际合并的最小实现：
+
+1. Agent `/v1/health` 独立返回 `healthy`、`ready`、`routing_blocked`，不再把门铃活动直接表示成 receiver 死亡。
+2. Supervisor 仅在 receiver liveness 不成立时拒绝启动；运行中每秒检查 route readiness。门铃活动或状态服务异常时不 detach，而是向 Hook 发送 `BLOCK`。
+3. Frida JS 默认 `routingBlocked=true`；`BLOCK` 调用现有 `stopGate()`、撤销 ARM / pending / UI 并让现有 PCM owner 后续数据 pass-through；`UNBLOCK` 才重新允许 ARM。
+4. gate 到达时若 route blocked / submit 失败 / dialog 无法关联，则立即 BLOCK、PASS-ALL，不再因此重启 Supervisor。
+5. Doorbell Guard 原来的约 60 秒 popup、8 秒 hold、250ms 轮询以及 Agent 的 `preemptForDoorbell()` 均未修改；EFS、门铃守护、OEM APK 也未修改。
+
+**部署状态：仅 GitHub main 已更新，LX04 设备仍运行旧的 V51.4 常驻二进制/JS。没有向设备推送新版本，也没有重启或改变当前长期测试。** Agent、Supervisor、Frida JS 必须作为匹配版本一起部署，禁止混用旧 Agent health JSON 与新 Supervisor。
+
+#### 最小修复设计（历史方案说明）
 
 - 将回答接收器 **liveness**（Agent/模型/小米会话进程仍存活）与 **route readiness**（当前门铃不活跃、状态服务可用、允许提交 DeepSeek）分开返回。
 - Supervisor 仅在 receiver 真正进程/服务不可用时按原策略 fail-open；门铃 active 或状态不确定时保持 Frida 会话存活，但将 PCM 路由置为 **PASS-ALL / BLOCK**，不发 ARM、不提交 DeepSeek。
