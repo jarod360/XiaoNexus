@@ -1,24 +1,28 @@
-# 旧 XiaoSeek 退役约束（不是卸载脚本）
+# 旧 XiaoSeek / 旧 Frida 退役记录（2026-11-04）
 
-**当前严禁删除旧版。** V51.2 Doorbell 仅通过一轮自动拒答接管与短时附加，出现唤醒迟缓/ASR 不完整；上轮回答完善、门铃抢占、开机重附加和回滚尚未完成。用户当前选择先排查而不恢复旧版。
+**状态：已按用户明确要求执行定点清理，设备返回 `LEGACY_SCOPED_RETIREMENT_COMPLETE`。** 旧 XiaoSeek 被用户认定为残缺版，不再作为新版的预期回退方案。
 
-## 必须保留的恢复材料
+## 设备端本轮删除的精确范围
 
-- 旧安装：`/data/adb/lx04-deepseek/` 的 Agent、`run.sh`、`supervise.sh`、`config.json`、缓存 Token 和日志；启动入口 `/data/adb/service.d/lx04-deepseek.sh`。
-- 旧版本控制机制：`supervise.sh` 以 `disabled` 标记决定是否继续启动；`run.sh` 在正常 `EXIT` 运行旧 `lx04-agent -restore-audio`。停用前创建 `disabled`、TERM 旧 Agent、等待守护退出，已在 V51.2 切换时验证；**恢复时需要检查新 Agent 真正停止和旧守护实际重新运行，不能只看“已请求恢复”**。
-- 新隔离目录：`/data/adb/xiaonexus/` 的 `bin/`、`frida/`、私有配置与 Token；不可与旧 Agent 同时提供回答。
-- 历史 Frida 测试：`/data/local/tmp/xiaoseek_v53_phase_a/` 中已确认的旧 `frida-server` 与其他实际查证到的文件；不要无范围清理 `/data/local/tmp` 或其他项目。
-- Windows 私人恢复备份：`D:\Codex\XiaoNexus\backups`；修复过 ADB tar 流前 39 字节警告，必要文件解包通过，原包与修复包均不得丢弃。**不能把活运行中快照视作字节一致性完整备份。**
+- `/data/adb/lx04-deepseek/`
+- `/data/adb/service.d/lx04-deepseek.sh`
+- `/data/local/tmp/xiaoseek_v53_phase_a/`
 
-## 退役之前必须全部通过
+清理脚本首先验证新版常驻相关进程和现有 `disabled` 状态；对已识别的旧 `frida-server` 按可执行文件真实路径核验后发送 TERM；不按进程名批量杀掉所有 Frida，也不清空 `/data/local/tmp`。
 
-1. 确认原厂时间、天气、音乐、米家、退出、正常知识问答与唤醒/ASR 稳定；
-2. 八条拒答覆盖的安全性、完整 DeepSeek 语音/全屏、长答案和并发/失败放行；
-3. 显式上轮知识回答关联、Doorbell 抢占取消及恢复；
-4. 原厂进程重启、Frida 断链、网络失败、设备重新开机与新版自动服务不死循环；
-5. 模拟回滚并实测旧服务重新启动、音频恢复、开机项互斥；
-6. 操作人明确决定退役，逐个检查 `/proc/PID/exe` 与启动引用，并再次备份、校验。
+**不属于本轮清理范围：** `/data/adb/xiaonexus/`、新版 `frida/frida-inject 16.6.6`、原厂 APK、系统服务或其他未确认为旧 XiaoSeek 的历史文件。
 
-本仓库不提供泛化 `rm -rf`、无界清理、卸载认证和自动删除旧版的命令。原厂 APK、系统服务、无关 Magisk 模块不可删除。`V51.3` 曾修复旧版启动脚本**只读审计**兼容性问题，这不代表旧版已经安全退役。
+## 已确认备份
 
-详见 [CURRENT_STATE.md](CURRENT_STATE.md)、[DEPLOYMENT.md](DEPLOYMENT.md)。
+- Windows D 盘：`D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`
+- SHA256：`42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`
+- 设备回执：`VERIFIED_D_BACKUP`、`BACKUP_SHA256`、`LEGACY_SCOPED_RETIREMENT_COMPLETE`。
+- 另有原 Supervisor / Gate 的安装前备份 `D:\Codex\XiaoNexus\backups\resident-pre-20261104-165351` 和 `resident-pre-20261104-165503`。
+
+以上证明脚本按预期汇报成功，**未独立逐项检查所有旧实验目录是否还有其他孤立文件**；不要因此宣称整个设备上绝无旧 Frida 痕迹。
+
+## 现在的恢复手段
+
+不再默认恢复旧 `lx04-agent`。如 V51.4 常驻出现异常，先运行 `/data/adb/xiaonexus/resident/disable.sh` 禁用新自动附加、保留原厂功能；必要时使用上面的 **V51.4 安装前 Supervisor/Gate 备份** 恢复之前的新版运行文件。任何恢复都要核验进程、权限和实时运行状态。
+
+注意：本次尚未完成整机冷重启、门铃实际抢占和 24 小时持续稳定性验收。参见 [CURRENT_STATE.md](CURRENT_STATE.md) 与 [V51.4 常驻交接](RESIDENT_EFS_V51_4_HANDOFF.md)。
