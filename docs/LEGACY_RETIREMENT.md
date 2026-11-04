@@ -35,3 +35,8 @@ Private config/token files must stay inside the device directory, not in Git or 
 This repository intentionally includes **no generic `rm -rf`**, no autodeletion of tokens, and no blanket cleanup of Frida directories. Old credential files must not be dumped to public logs. Audit commands print only path existence, process counts and filenames of matching startup scripts. If a file's owner/purpose cannot be determined, leave it alone.
 
 For early V51.1 users: keep the downloaded known-good candidate, run the next version's audit without installing new code, and **do not delete the old environment during the first real-device test**.
+
+
+### V51.3 shell parsing correction
+
+The old V51.2 audit failed only at the startup script inspection stage due to nested Android shell regex parentheses. The user confirmed old agent and Frida server still running, and no XiaoNexus device files installed. V51.3 replaces the grouped grep with safe per-file checks, prints explicit coverage/errors, and **never** deletes, stops, or overwrites old files. Do not interpret the V51.2 exception as proof of no old boot scripts.
