@@ -77,3 +77,8 @@ The operator has completed the following on **one** Android 8.1 / SDK 27 / armea
 - **15-second** new on-device supervisor test with **no `--enable`** returned `PREFLIGHT_OBSERVE_PASS`, `OBSERVE_READY_PASS`, `OBSERVE_PROCESS_CLEANUP_PASS`, `OBSERVE_TEST_COMPLETED`. This verifies that the Frida injector attached/declared ready and its test processes exited with the OEM main PID unchanged; it does **not** prove normal voice commands were issued during attachment, audio/UI experience, refusal PCM gate, optional expansion, doorbell popup, or safe autonomous restart.
 
 Remaining critical checkpoints: observe ordinary spoken OEM responses during an active attach; one bounded `--enable` refusal trial with user listening/observing UI; independent DeepSeek TTS and text; context expansion; doorbell preemption; restart and rollback. Old XiaoSeek, boot script, and legacy Frida server must not be deleted until these pass.
+
+
+### V51.2 OBSERVE_ONLY 60-second run (operator output)
+
+The LX04 operator ran an **additional 60-second** OEM attachment window without `--enable`. The exact reported process checks were: `NATIVE_TEST_STARTED_60_SECONDS`, `NOW_TEST_XIAOAI_VOICE`, `OBSERVE_READY_PASS`, `NATIVE_OBSERVE_CLEANUP_PASS`, and `NATIVE_OBSERVE_60S_COMPLETE`. The script checked a single unchanged OEM main PID and no leftover new Supervisor or frida-inject process after cleanup. **The operator has not yet reported whether three spoken native commands were actually heard and worked**; do not infer audio/UI or native command acceptance from the program output. PCM muting/refusal handoff and explicit expansion remain untested in this build. Keep old XiaoSeek recovery assets and do not enable automatic gating before confirming voice behavior.
