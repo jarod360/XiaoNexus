@@ -105,3 +105,21 @@ REFUSAL_TEST_WINDOW_COMPLETE
 **Direct user-observed outcome:** real refusal takeover worked; the short **“请稍后”** prompt appeared normally, DeepSeek took over successfully, speech was normal, and full-screen text display was normal. The operator also previously confirmed native time, weather, and volume commands worked normally in a 60-second observe-only window. The post-test check found no leftover *new* Supervisor or frida-inject process, and the OEM main PID remained unchanged.
 
 **Evidence boundary:** The grep count `DEEPSEEK_REFUSAL_TTS_LOG_COUNT=1` is a file-wide count, not a per-window delta or dialog-ID correlation proof. The user-observed takeover is the meaningful end-to-end confirmation for **one test question**; we have not yet collected complete per-session PCM counters (dropped/passed/EOF) for this V51.2 run, nor independently quantified original refusal audio leakage. This does **not** prove all eight refusal phrases, expansion of last OEM answer, doorbell popup preemption, long TTS, failure/retry behavior, unattended boot/re-attach or rollback. Preserve the old Agent, old Frida files, credentials and `D:\\Codex` backup, and do not call this V52 stable.
+
+## V51.2 last-answer expansion first live trial (2026-11-04)
+
+After the successful live refusal test, the operator ran a separately bounded 120-second `--enable` expansion test. Exact reported output:
+
+~~~text
+EXPAND_PREFLIGHT_PASS
+EXPAND_TEST_STARTING
+EXPAND_READY_ASK_TWO_QUESTIONS
+GATE_ATTACH_READY_PASS
+EXPAND_PROCESS_CLEANUP_PASS
+EXPAND_TTS_LOG_COUNT=0
+EXPAND_TEST_WINDOW_COMPLETE
+~~~
+
+**Result: NOT PASSED / not yet established.** The attach and cleanup passed, but the existing `runtime.log` contained no `mode=expand` TTS-accepted entries as counted by the test. The count is cumulative and does not on its own prove whether an expansion request was recognized, submitted, failed, canceled, or completed. Need operator audio/UI feedback and **redacted marker-only** supervisor log evidence. Distinguish ASR mismatch, absence of matching `Template.General` with `skill_icon.description=智能问答`, failure to link the same dialog ID, incomplete native TTS gate, absent DeepSeek request or receiver/doorbell failure. Do not call expansion a validated feature or classify this as a cloud API error.
+
+The current implementation passes the preceding original user question *and* the native answer as context, with instructions to re-answer comprehensively and correct inaccuracies, rather than merely paraphrase the native answer. This is source-code behavior, not proof it operated on this trial.
