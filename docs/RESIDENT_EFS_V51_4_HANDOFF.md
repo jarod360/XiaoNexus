@@ -90,7 +90,7 @@
    ```powershell
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root\Install_Resident_LX04.ps1"
    ```
-   新安装器会先在 `D:\Codex\XiaoNexus\backups\resident-pre-时间戳\` 备份旧 Agent、Supervisor 和 Frida JS，再将三者作为一组原子替换，并暂时保留 `/data/adb/xiaonexus/disabled`。还会保存本次包的 SHA256SUMS 摘要，供下一步确认只能激活同一包。期望输出：
+   新安装器会先在 `D:\Codex\XiaoNexus\backups\resident-pre-时间戳\` 备份旧 Agent、Supervisor 和 Frida JS，再在 `/data/adb/xiaonexus/disabled` 保持存在的情况下，逐个通过 `.new` 临时文件和 `mv` 原子替换三件套。它不是文件系统级的三文件事务；若中途失败，设备仍保持禁用状态，可用备份恢复。安装器还会保存本次包的 SHA256SUMS 摘要，供下一步确认只能激活同一包。期望输出：
    - `CANDIDATE_HASHES_PASS`
    - `BACKUP_READY=...`
    - `DEVICE_STAGE_MANIFEST=...`
