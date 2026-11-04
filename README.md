@@ -10,7 +10,7 @@
 | --- | --- |
 | EFS 负载止损 | 原厂 `efs-base` 陷入 `/apm_cc` 失败重试：先前一次性定点 Hook 后，10 秒 CPU ticks **939→1**、写调用 **17,251→1**；这是修复的实测基线，不是本次常驻启动后的再次测量 |
 | 短时稳定 | 单独测试 **12 分钟**，原厂 PID 保持不变；原厂、OBSERVE_ONLY 和 `--enable` 基础功能测试完成 |
-| 常驻激活 | 设备端日志依次出现 `RESIDENT_START`、`EFS_ONCE_START`、`EFS_FLAGS_CONFIRMED`、`VOICE_SUPERVISOR_START`、`READY_PASS_ALL`；OEM 主进程 PID **4119**，未在这次会话中观察到重启 |
+| 此前常驻启动（16:55） | 设备端日志依次出现 `RESIDENT_START`、`EFS_ONCE_START`、`EFS_FLAGS_CONFIRMED`、`VOICE_SUPERVISOR_START`、`READY_PASS_ALL`；OEM 主进程 PID **4119**，未在那一轮观察到重启；19:14 后续激活因 DNS 环境失败，19:21 已禁用 |
 | 拒答授权 | Supervisor 日志记录 **5 次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`**，不能单凭授权日志推定每次 DeepSeek TTS 均完成 |
 | 旧版退役 | 旧 `/data/adb/lx04-deepseek/`、`/data/adb/service.d/lx04-deepseek.sh` 和已确认的 V53 旧 Frida 实验目录已通过定点清理脚本删除；设备返回 `LEGACY_SCOPED_RETIREMENT_COMPLETE` |
 | 退役备份 | 原始旧版归档保留于 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`；SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b` |
