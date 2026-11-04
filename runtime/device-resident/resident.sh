@@ -99,6 +99,14 @@ while [ ! -e "$disabled" ]; do
   wait "$child"
   child=
   log VOICE_SUPERVISOR_EXIT
+  # Receiver / Wi-Fi / doorbell outages do not count as Frida crash loops.
+  # Supervisor fails open before arming PCM in these cases.
+  if tail -n 8 "$diag/supervisor-last.log" 2>/dev/null |
+     grep -E -q 'answer receiver (unhealthy|unavailable)'; then
+    log RECEIVER_UNAVAILABLE_RETRY_LATER
+    sleep 30
+    continue
+  fi
   failures=$((failures+1))
   sleep 15
 done
