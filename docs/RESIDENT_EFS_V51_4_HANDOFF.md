@@ -1,11 +1,11 @@
 # LX04 V51.4 常驻测试 + EFS 修复 + expand 诊断交接
 
-> 状态（2026-11-04）：**V51.4 已部署并激活常驻测试，冷重启和长期稳定仍未验收**。GitHub CI 与设备实测要分开记录。以下部署指令保留供重装/复现，不意味着需要立即再次执行。
+> 状态（2026-11-04 19:21）：**V51.4 曾启动过常驻测试；run13 更新后的 Agent 因 DNS 环境缺失而小米认证失败，用户已执行 -Disable，当前设备仅原厂小爱运行。** DHCP DNS 自动获取修复在 PR #4，等待 CI 和新候选包；禁止重新激活旧 run13 包。GitHub CI 与设备实测分开记录。
 
 ## 已完成的实机验收（最新记录）
 
-- **部署**：候选包 SHA256 通过，备份 `resident-pre-20261104-165351` 和 `resident-pre-20261104-165503`，八个设备端文件上传成功；用户运行 `-Activate` 后返回 `RESIDENT_ACTIVATION_REQUESTED`。
-- **启动链路**：`16:55:16 RESIDENT_START / EFS_ONCE_START` → `16:55:27 EFS_FLAGS_CONFIRMED / VOICE_SUPERVISOR_START` → `08:55:31 READY_PASS_ALL`（Supervisor 日志使用 UTC 时间显示）。用户后续 `ps` 原厂 PID 4119 为 `S`，Supervisor 27312、Frida 27322、Agent 32719 均在运行。
+- **此前部署**：候选包 SHA256 通过，备份 `resident-pre-20261104-165351` 和 `resident-pre-20261104-165503`，设备文件上传成功；首次 `-Activate` 曾正常进入 `READY_PASS_ALL`。后续 run13 包再次激活时 Agent DNS 初始化失败，详见本文末尾新增 DNS 事件记录。
+- **此前启动链路**：`16:55:16 RESIDENT_START / EFS_ONCE_START` → `16:55:27 EFS_FLAGS_CONFIRMED / VOICE_SUPERVISOR_START` → `08:55:31 READY_PASS_ALL`（Supervisor 日志使用 UTC 时间显示）。这只是较早一轮成功记录；最新 19:14 启动失败后，19:21 已执行 `-Disable`，当前不再有 XiaoNexus/Frida 进程。
 - **拒答**：Supervisor 后续有五次 `XIAONEXUS_ARM_REFUSAL_ACCEPTED`；只是授权确认，并非每次 DeepSeek 已成功播报的直接证据。
 - **旧版退役**：按用户要求，已执行旧版定点备份和删除，回执 `LEGACY_SCOPED_RETIREMENT_COMPLETE`；备份文件 `D:\Codex\XiaoNexus\backups\legacy-retirement-20261104-165851.tar.gz`，SHA256 `42eabb835372dddec09587158397f4e7ee3e34343b60f030af254c03405f533b`。原来要求“旧版本始终保留”的条款现为历史说明。
 - **边界**：现有 Doorbell Agent 未替换、门铃保护源码未修改；真实按铃抢占、三端弹窗、EFS 常驻后独立性能复测、OEM 重附加、整机冷重启、expand 偶发漏拦截仍需验证。
@@ -48,7 +48,7 @@
 
 - `runtime/device-resident/efs_recover.js`：从实机命中过 3 次并恢复 CPU 的一次性脚本提取。
 - `runtime/device-resident/efs_once.sh`：独立受限注入 10 秒、同 PID 检查、FLAGS_FALSE 验证、清理 FIFO。
-- `runtime/device-resident/resident.sh`：串行 EFS→Agent→Supervisor，PID 更新、熔断和日志。
+- `runtime/device-resident/resident.sh`：串行 EFS→Agent→Supervisor，PID 更新、熔断和日志。 Agent 启动前还需从 Android DHCP 下发的 `net.dns1`…`net.dns4` 动态读取 DNS，并设置进程级 `XIAOBOT_DNS_SERVER`；PR #4 正在补齐。
 - `runtime/device-resident/service.sh`：非阻塞 Magisk service.d 入口。
 - `runtime/device-resident/disable.sh`：禁止后续自动附加、尽量温和退出 Supervisor。
 - `runtime/device-supervisor/main.go`：补上 `XIAONEXUS_ARM_EXPAND_ACCEPTED/REJECTED`、`EXPAND_CONTEXT_MISSING`、`EXPAND_GATE_TIMEOUT` 等日志。
@@ -57,6 +57,39 @@
 - `scripts/Retire_Legacy_LX04.ps1`：单独备份/清理旧安装，删除必须使用 `-Commit` 且设备端检查新版仍在运行。
 - `runtime/device-resident/retire_legacy.sh`：仅触及已确认的旧路径，不扫全系统。
 - `.github/workflows/resident-candidate.yml`：PR 上检查 JS/Go/PowerShell/sh 并构建 ARMv7 Doorbell、Standard 包。
+
+## 2026-11-04 19:14：Agent DNS 启动失败与修复（当前主阻塞）
+
+### 现场证据与根因
+
+新 Agent 日志明确显示：
+
+~~~text
+lookup account.xiaomi.com on [::1]:53
+read udp [::1]:...->[::1]:53: connection refused
+Xiaomi authentication failed
+~~~
+
+Android 网络自身正常：Wi-Fi 为 CONNECTED / VALIDATED；系统属性 net.dns1=192.168.0.254；Connectivity 的 DnsAddresses 也是 192.168.0.254；系统 resolver 能将 account.xiaomi.com 解析到 111.206.191.166。设备无 nslookup，因此没有做绕过 Android resolver 的独立 DNS 直连验证。
+
+旧版 client/runtimeenv/dns.go 的 ConfigureDNSFromEnv() 只在 XIAOBOT_DNS_SERVER 非空时替 Go resolver 指定 DNS；为空时返回 nil。旧版 scripts/device-run.sh 会读取 Android net.dns1 并设置 XIAOBOT_DNS_SERVER；V51.4 resident.sh 漏掉此初始化，导致 Go resolver 落到 [::1]:53。不是 DHCP 没下发 DNS，也不是应把网关 IP 写死。
+
+### PR #4 的代码修复
+
+- PR：https://github.com/jarod360/XiaoNexus/pull/4（同一 PR 包含安装器 manifest 换行修复）。
+- resident.sh 在启动 Agent 前顺序读取 net.dns1…net.dns4，自动选择第一个有效、非 loopback 的 IP；IPv4 使用 IP:53，IPv6 使用 [IP]:53。
+- 最多等待 120 秒等待 Android Wi-Fi/DHCP DNS 属性就绪；就绪记录 ANDROID_DNS_READY，再启动 Agent；超时记录 ANDROID_DNS_UNAVAILABLE_RETRY_LATER，不启动 Agent，也不触发无效的小米登录循环。
+- 不写死 192.168.0.254，不把默认网关假定为 DNS，不修改 Android 全局 DNS；不改 Agent 二进制、EFS 或 Doorbell Guard。
+- 每次 Agent 进程需要重新启动时，重新读取当前 Android DNS 属性。当前最小实现不对已运行 Agent 做热切换；网络/DHCP DNS 变更后应安全重启 XiaoNexus 以重新读取。
+
+### 当前设备状态与下一步
+
+- 用户已运行 -Disable；最新 ps 仅有 OEM PID 4119 和 MIOT PID 4155，没有 Agent / Supervisor / Frida。
+- 原厂小爱保持可用；EFS 一次性 flags 处理已在 19:14 完成。门铃守护没有被此次 DNS 诊断修改。
+- 等 PR #4 CI 通过，下载该次新构建的完整 candidate artifact。不要重新激活旧 run13 包。
+- 新包部署后，先检查 resident-status.log 出现 ANDROID_DNS_READY → AGENT_LAUNCH_REQUESTED；agent-last.log 不再出现 [::1]:53；随后验证 Agent PID、18765 监听与 Supervisor READY_PASS_ALL，再进行语音/门铃验收。
+
+**DNS 修复当前仅完成源码提交，尚未 CI/实机验证；不得标记为已解决。**
 
 ## 部署步骤（门铃健康协议修复；Windows 仅使用 D:\Codex）
 
