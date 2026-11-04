@@ -1,4 +1,4 @@
-name: V51.4 resident candidate validation
+name: V51.5 resident candidate validation
 on:
   pull_request:
     branches: [main]
@@ -42,8 +42,8 @@ jobs:
         run: sh scripts/build-variants.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-V51.4-resident-candidate
+          name: XiaoNexus-V51.5-resident-candidate
           path: |
-            dist/XiaoNexus-V51.4-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-V51.4-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V51.5-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V51.5-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS
