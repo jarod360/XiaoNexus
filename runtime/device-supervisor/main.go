@@ -297,7 +297,10 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  }
  blockNow:=func(){
   if !enable{return}
-  _,_ = io.WriteString(stdin,"BLOCK\n")
+  if _,e:=io.WriteString(stdin,"BLOCK\n");e!=nil{
+   log.Print("XIAONEXUS_ROUTING_CONTROL_WRITE_FAILED")
+   return
+  }
   routingBlocked=true
  }
  refreshRoute:=func(){
@@ -333,7 +336,7 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     if id,ok:=parseGate(ev.value);ok{
      if !enable{continue}
      status,statusOK:=c.status()
-     if !statusOK||!status.routeReady(){
+     if routingBlocked||!statusOK||!status.routeReady(){
       blockNow()
       log.Print("XIAONEXUS_GATE_BLOCKED_PASS_ALL")
       continue
@@ -363,7 +366,7 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
      if a.kind=="arm_expand"{log.Printf("XIAONEXUS_EXPAND_ARM_REQUESTED dialog8=%s",a.id[:8])}
      if routingBlocked{continue}
      status,statusOK:=c.status()
-     if !statusOK||!status.routeReady(){blockNow();continue}
+     if routingBlocked||!statusOK||!status.routeReady(){blockNow();continue}
      command:="ARM "
      if a.kind=="arm_expand"{command="ARMEXP "}
      if _,e:=io.WriteString(stdin,command+a.id+"\n");e!=nil{
