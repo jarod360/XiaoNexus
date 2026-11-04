@@ -82,3 +82,8 @@ Remaining critical checkpoints: observe ordinary spoken OEM responses during an 
 ### V51.2 OBSERVE_ONLY 60-second run (operator output)
 
 The LX04 operator ran an **additional 60-second** OEM attachment window without `--enable`. The exact reported process checks were: `NATIVE_TEST_STARTED_60_SECONDS`, `NOW_TEST_XIAOAI_VOICE`, `OBSERVE_READY_PASS`, `NATIVE_OBSERVE_CLEANUP_PASS`, and `NATIVE_OBSERVE_60S_COMPLETE`. The script checked a single unchanged OEM main PID and no leftover new Supervisor or frida-inject process after cleanup. **The operator has not yet reported whether three spoken native commands were actually heard and worked**; do not infer audio/UI or native command acceptance from the program output. PCM muting/refusal handoff and explicit expansion remain untested in this build. Keep old XiaoSeek recovery assets and do not enable automatic gating before confirming voice behavior.
+
+
+### 60-second native-function observation: spoken checks confirmed
+
+Following the successful `NATIVE_OBSERVE_60S_COMPLETE` and post-attach cleanup, the LX04 operator confirmed the time, weather, and volume-control voice tasks behaved normally during the OBSERVE_ONLY window. This is a user-observed native speech/control compatibility pass, **not** a controlled real-refusal/DeepSeek routing pass. The first `--enable` targeted trial is still pending; do not retire old XiaoSeek or its backup.
