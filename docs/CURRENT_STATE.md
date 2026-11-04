@@ -50,7 +50,22 @@
 4. gate 到达时若 route blocked / submit 失败 / dialog 无法关联，则立即 BLOCK、PASS-ALL，不再因此重启 Supervisor。
 5. Doorbell Guard 原来的约 60 秒 popup、8 秒 hold、250ms 轮询以及 Agent 的 `preemptForDoorbell()` 均未修改；EFS、门铃守护、OEM APK 也未修改。
 
-**部署状态：仅 GitHub main 已更新，LX04 设备仍运行旧的 V51.4 常驻二进制/JS。没有向设备推送新版本，也没有重启或改变当前长期测试。** Agent、Supervisor、Frida JS 必须作为匹配版本一起部署，禁止混用旧 Agent health JSON 与新 Supervisor。
+**部署状态：GitHub main 已更新，LX04 设备仍运行旧的 V51.4 常驻二进制/JS。没有向设备推送新版本，也没有重启或改变当前长期测试。** Agent、Supervisor、Frida JS 必须作为匹配版本一起部署，禁止混用旧 Agent health JSON 与新 Supervisor。
+
+#### 部署器同步修复与候选包（PR #3）
+
+旧安装器只部署 Supervisor + Frida JS，漏掉 Agent；这会让新 Supervisor 收到旧 health JSON 后一直拒绝启动。已通过 PR #3 修正并合并：
+
+- PR: https://github.com/jarod360/XiaoNexus/pull/3
+- GitHub Actions run #13：**success**，包括 Frida 回归、PowerShell/Shell 语法、两个 ARMv7 构建和 Go tests。
+- 候选 artifact: `XiaoNexus-V51.4-resident-candidate`
+- Actions run: https://github.com/jarod360/XiaoNexus/actions/runs/41815530329
+- Artifact ID: `13314740670`
+- Artifact ZIP SHA256: `e67fccfef13e15ccc444ce524203b79a90945f8594fa6c39555d577bdbab2030`
+- 新安装器现会备份、暂存 Agent + Supervisor + Frida JS；先保持 `disabled`，`-Activate` 只在本地与设备暂存包摘要一致、旧进程已退出时激活，不会重复上传或重复备份。
+- 设备部署仍未执行；候选包只是通过 CI 的构建产物，不代表实机验收。
+
+
 
 #### 最小修复设计（历史方案说明）
 
