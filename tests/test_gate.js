@@ -460,4 +460,39 @@ test('dialog protocol still rejects 30 33 and nonhex IDs',()=>{
  for(const id of ['a'.repeat(30),'a'.repeat(33),'g'.repeat(31)]){let t=setup();t.event('SpeechRecognizer.Recognize',id);assert.equal(t.rpc.exports.armdialog(id),false);}
 });
 
+const PRODUCT_REPLIES = [
+ '小爱没有用过苹果新品的产品，小米的产品非常好用，推荐你使用哦～',
+ '小爱没有用过vivo手机的产品，小米的产品非常好用，推荐你使用哦～',
+ '家的音箱暂时无法购买，你可以选择最新的小米产品哦～',
+ '家的空调暂时无法购买，你可以选择最新的小米产品哦～',
+ '不知道咋说，你还是去百度上看看大家的评价吧。',
+ '非常好用呀，具体你可以到小米商城了解详情。'
+];
+PRODUCT_REPLIES.forEach((text,i)=>test('observed product reply routes only the armed OEM dialog '+i,()=>{
+ let t=setup(),id=t.id('a');t.event('SpeechRecognizer.Recognize',id);assert(t.rpc.exports.armdialog(id));
+ t.toast(id,text);t.speakEvent(id,text);let p=t.owner(id);t.write(p,Uint8Array.of(1,2));t.end(p);
+ assert.equal(t.status().gateCounters.pcmDroppedBlocks,1);assert.equal(t.status().uiCounters.uiWaitShown,1);
+ assert.equal(t.messages[0].dialog_id,id);
+}));
+test('product matching preserves facts, navigation, shopping actions and modified/quoted replies',()=>{
+ for(const text of ['距离太远，暂不支持，请在手机端试一下吧。','我还记得小米的全名是小米科技有限责任公司；雷军',
+ '小爱已经为您下单成功，请打开小米商城完成支付吧', '雷军，男，1969年出生。',
+ '有人说'+PRODUCT_REPLIES[0],PRODUCT_REPLIES[0]+'下面是详细介绍。',
+ '家的产品暂时无法购买，你可以选择最新的小米产品哦～然后确认购买',
+ '小爱没有用过的产品，小米的产品非常好用，推荐你使用哦～']){
+  let t=setup(),id=t.id('a');t.event('SpeechRecognizer.Recognize',id);t.rpc.exports.armdialog(id);
+  t.toast(id,text);t.speakEvent(id,text);let p=t.owner(id);t.write(p,Uint8Array.of(1));t.end(p);
+  assert.equal(t.status().gateCounters.pcmDroppedBlocks,0,text);assert.equal(t.status().uiCounters.uiSuppressed,0,text);
+ }
+});
+test('product templates preserve default, synthesized and mismatched-dialog audio',()=>{
+ for(const mode of ['default','synthesize','wrong-dialog']){
+  let t=setup(),id=t.id('a');t.event('SpeechRecognizer.Recognize',id);
+  if(mode!=='default')t.rpc.exports.armdialog(id);
+  if(mode==='wrong-dialog'){id=t.id('b');t.event('SpeechRecognizer.Recognize',id);}
+  if(mode==='synthesize'){id=t.id('c');t.event('SpeechSynthesizer.Synthesize',id);}
+  t.toast(id,PRODUCT_REPLIES[0]);t.speakEvent(id,PRODUCT_REPLIES[0]);let p=t.owner(id);t.write(p,Uint8Array.of(1));t.end(p);
+  assert.equal(t.status().gateCounters.pcmDroppedBlocks,0,mode);assert.equal(t.status().uiCounters.uiSuppressed,0,mode);
+ }
+});
 console.log('RESULT',passed,'tests PASS');

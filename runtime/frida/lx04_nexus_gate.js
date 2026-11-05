@@ -166,8 +166,8 @@
     runWithEof: 0, runWithCancel: 0, runWithoutEndSignal: 0,
     observationErrors: 0
   };
-  // Eight complete texts recovered from genuine OEM Toast logs / historical
-  // cross-file dialogId audit. Do not use substring / regex refusal inference.
+  // Complete OEM replies recovered from Toast/Speak logs. Match the response,
+  // never product names or keywords in the user's question.
   var REFUSALS = [
     '被你问住了，看来要更努力学习了',
     '这个问题我暂时还回答不上，需要再学习一下',
@@ -176,7 +176,9 @@
     '这个我暂时还回答不上诶，我要再学习学习',
     '这个问题我还在学习中，先聊点别的吧',
     '被难住了诶，看来我还要再学习一下',
-    '对不起，我还在学习中！'
+    '对不起，我还在学习中！',
+    '不知道咋说，你还是去百度上看看大家的评价吧。',
+    '非常好用呀，具体你可以到小米商城了解详情。'
   ];
   function normalizeRefusalText(input) {
     // Remove harmless whitespace, normalize comma/exclamation typography,
@@ -184,7 +186,14 @@
     return String(input).replace(/[\s\u3000]/g,'').replace(/[,，]/g,'，').replace(/[!！]/g,'！');
   }
   var REFUSAL_KEYS = REFUSALS.map(normalizeRefusalText);
-  function isRefusalText(text) { return REFUSAL_KEYS.indexOf(normalizeRefusalText(text)) !== -1; }
+  function isRefusalText(text) {
+    var value = normalizeRefusalText(text);
+    if (REFUSAL_KEYS.indexOf(value) !== -1) return true;
+    // Only the variable product slot may change; both fixed clauses and the
+    // entire sentence must match. Do not swallow appended knowledge/actions.
+    return /^小爱没有用过[^，。！？；：~～]{1,40}的产品，小米的产品非常好用，推荐你使用哦[~～]$/.test(value) ||
+      /^家的[^，。！？；：~～]{1,40}暂时无法购买，你可以选择最新的小米产品哦[~～]$/.test(value);
+  }
   function note(s) {
     notes.push(s);
     if (notes.length > 12) notes.shift();
