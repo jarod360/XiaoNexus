@@ -13,7 +13,9 @@
 
 保留合法 31–32 位 dialogId、原厂 Recognize 来源、音频 owner、合成语音独立来源及门铃暂停等原有保护。新规则继续使用已验证的原厂等待动画，不另建 UI。
 
-81 项实际 Hook 离线回归通过。23:30 仅重启自己的 Supervisor/Frida 来加载脚本；原厂主进程未重启，23:30:30 READY_PASS_ALL 与 ROUTING_RESUMED，健康检查 healthy/ready=true、routing_blocked=false、no_global_mute=true。**新套话还待真实提问再次触发验收**；没有半夜用扬声器自动唤醒。
+81 项实际 Hook 离线回归通过。23:30 仅重启自己的 Supervisor/Frida 来加载脚本；原厂主进程未重启，23:30:30 READY_PASS_ALL 与 ROUTING_RESUMED，健康检查 healthy/ready=true、routing_blocked=false、no_global_mute=true。随后用户真实重试，确认动画、DeepSeek 页面和播报正常；没有半夜用扬声器自动唤醒。
+
+23:34–23:35 用户曾报告产品套话漏出半句后回桌面，未听到 DeepSeek。对应日志有 ARM、全部已记录 owner PCM 拦截及后续 DeepSeek 合成请求；这只能证明请求和 Hook 路径，不证明实际扬声器输出。23:42–23:43 再试时用户确认完整流程正常，原厂进程仍未重启。用户随后明确将此项暂缓；保留本地日志，不追加测试，不将偶发根因记为已修复。
 
 ## 未扩大拦截的内容
 
