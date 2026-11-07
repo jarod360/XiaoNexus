@@ -13,12 +13,18 @@ go test -tags doorbell ./cmd/xiaonexus-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-supervisor-armv7" ./cmd/xiaonexus-supervisor
 cp "$ROOT/runtime/frida/lx04_nexus_gate.js" "$OUT/lx04_nexus_gate.js"
 for flavor in standard doorbell; do
+  update_key=${XIAONEXUS_UPDATE_PUBLIC_KEY:-}
+  case "$update_key" in
+    *[!0-9a-f]*) echo 'Invalid update public key' >&2; exit 1 ;;
+  esac
+  if [ -n "$update_key" ] && [ "${#update_key}" -ne 64 ]; then echo 'Invalid update public key length' >&2; exit 1; fi
+  agent_flags="-s -w -X main.installedVersion=$VERSION -X main.installedFlavor=$flavor -X main.updatePublicKey=$update_key"
   tag=''
   if [ "$flavor" = doorbell ]; then tag='doorbell'; fi
   if [ -n "$tag" ]; then
-    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags "$tag" -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -tags "$tag" -trimpath -ldflags="$agent_flags" -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
   else
-    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags="$agent_flags" -o "$OUT/xiaonexus-$flavor-armv7" ./cmd/xiaonexus-agent
   fi
   PKG="$OUT/package-$flavor"
   mkdir -p "$PKG"
@@ -29,7 +35,7 @@ for flavor in standard doorbell; do
   cp "$ROOT/runtime/device-resident/"*.sh "$ROOT/runtime/device-resident/"*.js "$PKG/resident/"
   cp "$ROOT/scripts/Install_Resident_LX04.ps1" "$PKG/Install_Resident_LX04.ps1"
   cp "$ROOT/scripts/Retire_Legacy_LX04.ps1" "$PKG/Retire_Legacy_LX04.ps1"
-  cp "$ROOT/docs/RESIDENT_V51_6_0_RC_HANDOFF.md" "$PKG/HANDOFF.md"
+  cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/THIRD_PARTY.md" "$PKG/"
   cp "$ROOT/scripts/Preflight_XiaoNexus.ps1" "$PKG/Preflight_XiaoNexus.ps1"
   cp "$ROOT/scripts/Audit_Legacy_XiaoSeek.ps1" "$PKG/Audit_Legacy_XiaoSeek.ps1"
   printf '%s\n' "$VERSION" > "$PKG/VERSION"
@@ -40,8 +46,9 @@ for flavor in standard doorbell; do
     '3. Native attach needs a separate OFFICIAL frida-inject 16.6.6 android-arm binary.' \
     '4. Resident service is OPT-IN; review Install_Resident_LX04.ps1 and use -Activate.' \
     '5. Preserve old install until reboot, failure recovery and rollback are independently verified.' \
+    '6. On the same LAN, open http://<LX04-IP>:8765/. Initial password: XiaoNexus-LX04. Use a trusted LAN.' \
     > "$PKG/README_TEST.txt"
-  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 Retire_Legacy_LX04.ps1 HANDOFF.md > SHA256SUMS)
+  (cd "$PKG" && sha256sum bin/xiaonexus-agent bin/xiaonexus-supervisor frida/lx04_nexus_gate.js resident/* Install_Resident_LX04.ps1 Retire_Legacy_LX04.ps1 > SHA256SUMS)
   tar -czf "$OUT/XiaoNexus-$VERSION-LX04-$flavor-armv7.tar.gz" -C "$PKG" .
 done
 cd "$OUT"

@@ -103,7 +103,7 @@ if ($legacyState -match "ACTIVE") { throw "Legacy XiaoSeek must be disabled befo
 if ((Root '/data/adb/xiaonexus/frida/frida-inject --version') -ne "16.6.6") {
     throw "Requires existing official Frida 16.6.6 android-arm"
 }
-$oem = Root 'pidof com.xiaomi.micolauncher'
+$oem = Root 'parents="$(pidof zygote || true) $(pidof zygote64 || true)"; for pid in $(pidof com.xiaomi.micolauncher || true); do parent=$(sed -n "s/^PPid:[[:space:]]*//p" /proc/$pid/status 2>/dev/null || true); for z in $parents; do if [ "$parent" = "$z" ]; then echo "$pid"; break; fi; done; done'
 if ($oem -notmatch '^\d+$') { throw "OEM PID invalid" }
 $busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
 if ($busy.Trim()) { throw "Another injector is active; do not replace live files" }
@@ -144,8 +144,13 @@ foreach ($entry in $map) {
     $temp = "/data/local/tmp/xn-stage-$i"
     & $adb -s $Device push (Join-Path $source $entry[0]) $temp | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Upload failed: $($entry[0])" }
-    Root ('cp ' + $temp + ' ' + $entry[1] + '.new && chmod ' + $entry[2] + ' ' + $entry[1] + '.new && mv ' + $entry[1] + '.new ' + $entry[1] + ' && rm -f ' + $temp) | Out-Null
+    $fileHash = (Get-FileHash -LiteralPath (Join-Path $source $entry[0]) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $verify = "printf '%s  %s\n' '$fileHash' '" + $entry[1] + ".new' | sha256sum -c - >/dev/null"
+    Root ('cp ' + $temp + ' ' + $entry[1] + '.new && ' + $verify + ' && chmod ' + $entry[2] + ' ' + $entry[1] + '.new && mv ' + $entry[1] + '.new ' + $entry[1] + ' && rm -f ' + $temp) | Out-Null
 }
+# A deliberately staged ADB package boots its base binaries. Preserve
+# versioned runtime slots while clearing pointers to any earlier trial.
+Root 'd=/data/adb/xiaonexus/updates; if [ -d "$d" ]; then if [ -f "$d/active" ]; then mv -f "$d/active" "$d/manual-previous"; fi; rm -f "$d/pending" "$d/trial"; fi' | Out-Null
 $manifestHash = (Get-FileHash -LiteralPath $checksums -Algorithm SHA256).Hash.ToLowerInvariant()
 Root ("printf '%s\n' '" + $manifestHash + "' > /data/adb/xiaonexus/resident/staged-package.sha256 && chmod 600 /data/adb/xiaonexus/resident/staged-package.sha256") | Out-Null
 Write-Host "DEVICE_STAGE_MANIFEST=$manifestHash"

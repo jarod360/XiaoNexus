@@ -59,15 +59,17 @@ def main() -> None:
 
     nexus = DEST / "client" / "cmd" / "xiaonexus-agent"
     nexus.mkdir(parents=True, exist_ok=True)
-    for filename in ("main.go", "main_test.go"):
+    for filename in ("main.go", "main_test.go", "admin.go", "admin.html", "admin_test.go", "admin_rules.go", "update.go", "update_verify.go", "update_verify_test.go"):
         shutil.copy2(ROOT / "runtime" / "device-agent" / filename, nexus / filename)
     # Guard source remains from the pinned XiaoSeek version, not a rewritten implementation.
     shutil.copy2(agent / "doorbell.go", nexus / "doorbell.go")
     shutil.copy2(stub, nexus / "doorbell_disabled.go")
     sup = DEST / "client" / "cmd" / "xiaonexus-supervisor"
     sup.mkdir(parents=True, exist_ok=True)
-    for filename in ("main.go", "main_test.go"):
+    for filename in ("main.go", "main_test.go", "admin_rules_test.go", "update_slot.go", "update_slot_test.go", "resident_recovery_test.go"):
         shutil.copy2(ROOT / "runtime" / "device-supervisor" / filename, sup / filename)
+    (sup / "testdata").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "runtime/device-resident/resident.sh", sup / "testdata/resident.sh")
     print("NEXUS_SUPERVISOR: on-device official Frida 16.6.6 ARM injector")
     print("NEXUS_AGENT: independent answer receiver with optional doorbell guard")
     print("PREPARED: " + str(DEST))

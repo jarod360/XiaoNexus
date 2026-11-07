@@ -15,8 +15,29 @@ oem_pid() {
 
 run=$base/run
 diag=$base/diag
-sup=$base/bin/xiaonexus-supervisor
-agent=$base/bin/xiaonexus-agent
+slot_root=$base/updates
+active_slot=$slot_root/active
+pending_slot=$slot_root/pending
+trial_slot=$slot_root/trial
+trial=
+slot_path() {
+  printf '%s\n' "$1" | grep -Eq '^V(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$' || return 1
+  candidate=$slot_root/$1
+  [ -x "$candidate/bin/xiaonexus-agent" ] &&
+  [ -x "$candidate/bin/xiaonexus-supervisor" ] &&
+  [ -f "$candidate/frida/lx04_nexus_gate.js" ] || return 1
+  printf '%s\n' "$candidate"
+}
+set_runtime() {
+  runtime=$1
+  agent=$runtime/bin/xiaonexus-agent
+  sup=$runtime/bin/xiaonexus-supervisor
+  script=$runtime/frida/lx04_nexus_gate.js
+}
+stable_version=$(cat "$active_slot" 2>/dev/null)
+stable_runtime=$(slot_path "$stable_version") || stable_runtime=$base
+set_runtime "$stable_runtime"
+export XIAONEXUS_SLOT_ROOT="$slot_root"
 efs=$base/resident/efs_once.sh
 disabled=$base/disabled
 pidfile=$run/resident.pid
@@ -75,9 +96,43 @@ cleanup() {
   current=$(cat "$pidfile" 2>/dev/null)
   [ "$current" = "$$" ] && rm -f "$pidfile"
 }
+stop_runtime_agent() {
+  stop_pid=$(pidof xiaonexus-agent)
+  case "$stop_pid" in '') return 0;; *[!0-9]*) return 1;; esac
+  [ "$(readlink /proc/"$stop_pid"/exe 2>/dev/null)" = "$agent" ] || return 1
+  kill -TERM "$stop_pid" 2>/dev/null || return 1
+  wait_seconds=0
+  while kill -0 "$stop_pid" 2>/dev/null && [ "$wait_seconds" -lt 10 ]; do
+    sleep 1
+    wait_seconds=$((wait_seconds+1))
+  done
+  ! kill -0 "$stop_pid" 2>/dev/null
+}
 trap 'cleanup; exit 0' HUP INT TERM
 trap cleanup EXIT
 log RESIDENT_START
+interrupted=$(cat "$trial_slot" 2>/dev/null)
+if [ -n "$interrupted" ]; then
+  if [ "$interrupted" != "$stable_version" ]; then
+    interrupted_runtime=$(slot_path "$interrupted") || interrupted_runtime=
+    if [ -n "$interrupted_runtime" ]; then
+      set_runtime "$interrupted_runtime"
+      interrupted_sup=$(pidof xiaonexus-supervisor)
+      case "$interrupted_sup" in
+        ''|*[!0-9]*) ;;
+        *) if [ "$(readlink /proc/"$interrupted_sup"/exe 2>/dev/null)" = "$sup" ]; then
+             kill -TERM "$interrupted_sup" 2>/dev/null
+             while kill -0 "$interrupted_sup" 2>/dev/null && [ ! -e "$disabled" ]; do sleep 1; done
+           fi ;;
+      esac
+      while [ ! -e "$disabled" ] && ! stop_runtime_agent; do sleep 5; done
+      set_runtime "$stable_runtime"
+    fi
+    if [ "$(cat "$pending_slot" 2>/dev/null)" = "$interrupted" ]; then rm -f "$pending_slot"; fi
+    log UPDATE_INTERRUPTED_ROLLED_BACK
+  fi
+  rm -f "$trial_slot"
+fi
 # Avoid attaching while the OEM startup SDKs are still initializing/forking.
 boot_wait_logged=
 while [ ! -e "$disabled" ]; do
@@ -164,11 +219,46 @@ while [ ! -e "$disabled" ]; do
     continue
   fi
   log VOICE_SUPERVISOR_START
-  "$sup" --enable >> "$diag/supervisor-last.log" 2>&1 &
+  XIAONEXUS_TRIAL_SLOT="$trial" "$sup" --enable --script "$script" >> "$diag/supervisor-last.log" 2>&1 &
   child=$!
   wait "$child"
+  exit_code=$?
   child=
   log VOICE_SUPERVISOR_EXIT
+  if [ -n "$trial" ]; then
+    if [ "$(cat "$active_slot" 2>/dev/null)" = "$trial" ]; then
+      stable_version=$trial
+      stable_runtime=$runtime
+    else
+      log UPDATE_TRIAL_ROLLED_BACK
+      while [ ! -e "$disabled" ] && ! stop_runtime_agent; do sleep 5; done
+      set_runtime "$stable_runtime"
+      trial=
+      rm -f "$trial_slot"
+      continue
+    fi
+    trial=
+    rm -f "$trial_slot"
+  fi
+  if [ "$exit_code" -eq 75 ] && [ ! -e "$disabled" ]; then
+    next=$(cat "$pending_slot" 2>/dev/null)
+    next_runtime=$(slot_path "$next") || next_runtime=
+    if [ -n "$next_runtime" ] && [ "$next" != "$stable_version" ] && stop_runtime_agent; then
+      # Consume the request before starting the candidate. A reboot during
+      # trial selects the old, committed slot without retrying the trial.
+      if (umask 077; printf '%s\n' "$next" > "$trial_slot.tmp") &&
+         mv -f "$trial_slot.tmp" "$trial_slot" && rm -f "$pending_slot"; then
+        sync
+        trial=$next
+        set_runtime "$next_runtime"
+        log UPDATE_TRIAL_START
+        continue
+      fi
+    fi
+    log UPDATE_SWITCH_DEFERRED
+    sleep 5
+    continue
+  fi
   # Receiver / Wi-Fi / doorbell outages do not count as Frida crash loops.
   # Supervisor fails open before arming PCM in these cases.
   if tail -n 8 "$diag/supervisor-last.log" 2>/dev/null |

@@ -25,6 +25,7 @@ function setup(unblock = true) {
     return o;
   }
   const reg = overload('event', function(){return true});
+  const classify = overload('classify', function(){return true});
   const speak = overload('speak',function(){return true});
   const init = overload('init',function(parent){this.parent=parent;return undefined});
   const pcm = overload('pcm',function(b){this.put.push(b); return b.length;});
@@ -45,7 +46,7 @@ function setup(unblock = true) {
   };
   function invoke(method, that, ...args){return (method.implementation||function(...a){return method.call(this,...a)}).apply(that,args);}
   const methods = {
-    'com.xiaomi.ai.android.core.e':{a:{overload:()=>reg}},
+    'com.xiaomi.ai.android.core.e':{a:{overload:type=>type.endsWith('.Event')?reg:classify}},
     'com.xiaomi.ai.android.core.f':{f:{overload:()=>speak}},
     'com.xiaomi.ai.android.impl.a':{
       i:{overload:()=>parentId},d:{overload:()=>mode},f:{overload:()=>cap},
@@ -53,6 +54,7 @@ function setup(unblock = true) {
         get(parent){return name==='h'?parent.playFuture:parent.decodeFuture;}})}},
     'com.xiaomi.ai.android.impl.a$d':{$init:{overload:()=>init},a:{overload:(...args)=>args.length===0?cancel:pcm},run:{overload:()=>run}},
     'com.xiaomi.ai.api.SpeechSynthesizer$Speak':{},
+    'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult':{},
     'java.lang.System':{identityHashCode:(task)=>task.hash},
     'java.lang.Thread':{currentThread:()=>({getId:()=>currentThread})},
     'java.util.concurrent.Future':{},
@@ -68,6 +70,12 @@ function setup(unblock = true) {
   const id = ch => ch.repeat(32);
   function event(name, dialog){return invoke(reg,{}, {getFullName:()=>name,getId:()=>dialog});}
   function makeSpeak(dialog,text){return {getDialogId:()=>({isPresent:()=>true,get:()=>dialog}),getPayload:()=>({getText:()=>text})};}
+  function instruction(dialog,name,text='',final=true){
+    const item=makeSpeak(dialog,text);
+    item.getFullName=()=>name;
+    item.getPayload=()=>({isFinal:()=>final,getResults:()=>({size:()=>1,get:()=>({getText:()=>text})})});
+    return invoke(classify,{},item);
+  }
   function speakEvent(dialog,text){return invoke(speak,{},makeSpeak(dialog,text));}
   function owner(dialog, opts={}){
     const t={hash:identity++,put:[],cancelled:false};
@@ -81,7 +89,7 @@ function setup(unblock = true) {
   function otherCard(text){return invoke(card,cardObject,text)}
   function status(){return rpc.exports.status()}
   function advance(ms){now+=ms;for(const [id,t] of [...timers]){if(t.due<=now){timers.delete(id);t.fn()}}}
-  return {id,event,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,rpc,messages,controlMessages,counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
+  return {id,event,instruction,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,rpc,messages,controlMessages,counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
 }
 const REF='这可把我难住了，看来要更努力学习了';
 function orig(t,id,text){t.event('SpeechRecognizer.Recognize',id);t.event('System.Ack',id);t.speakEvent(id,text)}
@@ -494,5 +502,53 @@ test('product templates preserve default, synthesized and mismatched-dialog audi
   t.toast(id,PRODUCT_REPLIES[0]);t.speakEvent(id,PRODUCT_REPLIES[0]);let p=t.owner(id);t.write(p,Uint8Array.of(1));t.end(p);
   assert.equal(t.status().gateCounters.pcmDroppedBlocks,0,mode);assert.equal(t.status().uiCounters.uiSuppressed,0,mode);
  }
+});
+test('custom complete OEM reply preserves dialog and exact-text gates',()=>{
+ const phrase='暂时无法回答这个新问题。';
+ for(const [same,text,matched] of [[true,phrase,true],[true,phrase+'附加正文',false],[false,phrase,false]]){
+  const t=setup(),armed=t.id('a'),id=same?armed:t.id('b');
+  t.event('SpeechRecognizer.Recognize',armed);
+  t.rpc.exports.onFridaStdin('REFUSALS '+JSON.stringify([phrase]));
+  assert(t.rpc.exports.armdialog(armed));
+  if(!same)t.event('SpeechRecognizer.Recognize',id);
+  t.speakEvent(id,text);const owner=t.owner(id);
+  t.write(owner,Uint8Array.of(1));t.end(owner);
+  assert.equal(t.status().gateCounters.pcmDroppedBlocks,matched?1:0);
+ }
+});
+test('direct prefix owns one genuine final ASR before its OEM audio and actions',()=>{
+  const t=setup(),id=t.id('a'),other=t.id('b');
+  t.rpc.exports.onFridaStdin('DIRECT ["问问小纽"]');
+  t.event('SpeechRecognizer.Recognize',id);
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','问问小纽，解释月相',false));
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','问问小纽，解释月相'));
+  assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_DIRECT:'+id+'\n'));
+  assert.equal(t.instruction(id,'SpeechSynthesizer.Speak'),false);
+  assert.equal(t.instruction(id,'MiotController.Operate'),false);
+  assert(t.instruction(other,'SpeechSynthesizer.Speak'));
+  assert(t.instruction(id,'Dialog.Finish'));
+  t.rpc.exports.onFridaStdin('BLOCK');
+  assert.equal(t.instruction(id,'MiotController.Operate'),false);
+});
+test('direct prefix passes OEM instructions when origin, freshness or owner is unsafe',()=>{
+  for (const reason of ['old','busy','unknown','prior','blocked','empty']) {
+    const t=setup(),id=t.id('a');
+    t.rpc.exports.onFridaStdin('DIRECT ["问问小纽"]');
+    if (reason!=='unknown') t.event('SpeechRecognizer.Recognize',id);
+    if (reason==='old') t.advance(2600);
+    if (reason==='busy') t.owner(t.id('b'));
+    if (reason==='prior') assert(t.instruction(id,'MiotController.Operate'));
+    if (reason==='blocked') t.rpc.exports.onFridaStdin('BLOCK');
+    assert(t.instruction(id,'SpeechRecognizer.RecognizeResult',reason==='empty'?'问问小纽：':'问问小纽，解释月相'));
+    assert(t.instruction(id,'SpeechSynthesizer.Speak'));
+    assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
+  }
+});
+test('reserved voice update command is never claimed by an overlapping direct prefix',()=>{
+  const t=setup(),id=t.id('a');
+  t.rpc.exports.onFridaStdin('DIRECT ["检查更"]');
+  t.event('SpeechRecognizer.Recognize',id);
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','检查更新。'));
+  assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
 });
 console.log('RESULT',passed,'tests PASS');

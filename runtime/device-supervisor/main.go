@@ -57,6 +57,22 @@ func canon(s string) string {
   return unicode.ToLower(r)
  },s)
 }
+func voiceUpdateMode(text string) string {
+ switch canon(text) {
+ case "检查更新","小纽检查更新":return "check"
+ case "小纽立即升级":return "apply"
+ default:return ""
+ }
+}
+func directQuery(text string,prefixes []string)string {
+ text=strings.TrimSpace(text)
+ for _,prefix:=range prefixes{
+  if len(prefix)==0 || len(text)<len(prefix) || !strings.EqualFold(text[:len(prefix)],prefix){continue}
+  query:=strings.TrimLeftFunc(text[len(prefix):],func(r rune)bool{return unicode.IsSpace(r)||strings.ContainsRune(":：,，",r)})
+  if n:=len([]rune(query));n>0&&n<=600{return query}
+ }
+ return ""
+}
 func hasAny(s string, options []string)bool {
  for _,word:=range options {if strings.Contains(s,word){return true}}
  return false
@@ -114,6 +130,7 @@ type router struct {
  last string
  previous *knowledge
  dialogs map[string]*dialog
+ expansions []string
 }
 func newRouter(clock func()time.Time)*router{return &router{clock:clock,dialogs:make(map[string]*dialog)}}
 func (r *router) feed(i instruction) action {
@@ -126,7 +143,15 @@ func (r *router) feed(i instruction) action {
   // Bare "补充下" is accepted only immediately after an OEM knowledge card.
   // Long-form backward references may be used within the five-minute context.
   expand:=isExpand(i.text)
-  if expand && isBriefExpand(i.text) {
+  custom := false
+  n:=canon(i.text)
+  if n!="" && !hasAny(n,nativeActions) {
+   for _,phrase:=range r.expansions {
+    if n==canon(phrase) { custom=true; break }
+   }
+  }
+  expand=expand||custom
+  if custom || (expand && isBriefExpand(i.text)) {
    p:=r.previous
    expand=p!=nil && p.dialogID==last && !now.Before(p.at) && now.Sub(p.at)<=60*time.Second
   }
@@ -165,6 +190,14 @@ func (r *router) gate(id string)action {
 type client struct{ token string; http *http.Client }
 
 type receiverStatus struct {
+ Rules struct {
+  Refusals []string `json:"refusals"`
+  Expansions []string `json:"expansions"`
+  Direct []string `json:"direct"`
+ } `json:"rules"`
+ AgentBusy bool `json:"agent_busy"`
+ DoorbellBlocked bool `json:"doorbell_blocked"`
+ UpdatePending bool `json:"update_pending"`
  WaitingDialog string `json:"waiting_dialog_id"`
  Healthy bool `json:"healthy"`
  Ready bool `json:"ready"`
@@ -178,8 +211,8 @@ func (s receiverStatus) alive() bool {
 func (s receiverStatus) routeReady() bool {
  return s.alive() && s.Ready && !s.RoutingBlocked
 }
-func (c *client) status() (receiverStatus, bool) {
- ctx,cancel:=context.WithTimeout(context.Background(),900*time.Millisecond);defer cancel()
+func (c *client) status(parent context.Context) (receiverStatus, bool) {
+ ctx,cancel:=context.WithTimeout(parent,900*time.Millisecond);defer cancel()
  req,err:=http.NewRequestWithContext(ctx,http.MethodGet,receiver+"/v1/health",nil)
  if err!=nil{return receiverStatus{},false}
  req.Header.Set("Authorization","Bearer "+c.token)
@@ -187,8 +220,37 @@ func (c *client) status() (receiverStatus, bool) {
  defer res.Body.Close()
  if res.StatusCode!=http.StatusOK{return receiverStatus{},false}
  var status receiverStatus
- if json.NewDecoder(io.LimitReader(res.Body,4096)).Decode(&status)!=nil{return receiverStatus{},false}
+ if json.NewDecoder(io.LimitReader(res.Body,16384)).Decode(&status)!=nil{return receiverStatus{},false}
  return status,true
+}
+func (c *client) waitForReceiver(parent context.Context) (receiverStatus, error) {
+ ctx,cancel:=context.WithTimeout(parent,25*time.Second)
+ defer cancel()
+ ticker:=time.NewTicker(time.Second)
+ defer ticker.Stop()
+ for {
+  status,ok:=c.status(ctx)
+  if ok&&status.alive(){return status,nil}
+  select {
+  case <-ctx.Done():
+   if err:=parent.Err();err!=nil{return receiverStatus{},err}
+   return receiverStatus{},errors.New("answer receiver unavailable; no injection")
+  case <-ticker.C:
+  }
+ }
+}
+
+func (c *client) voiceUpdate(mode string) {
+ ctx,cancel:=context.WithTimeout(context.Background(),900*time.Millisecond);defer cancel()
+ body,_:=json.Marshal(mode)
+ req,err:=http.NewRequestWithContext(ctx,http.MethodPost,receiver+"/v1/update/voice",bytes.NewReader(body))
+ if err!=nil{return}
+ req.Header.Set("Authorization","Bearer "+c.token)
+ req.Header.Set("Content-Type","application/json")
+ response,err:=c.http.Do(req)
+ if err!=nil{return}
+ defer response.Body.Close()
+ if response.StatusCode==http.StatusNoContent{log.Print("XIAONEXUS_VOICE_UPDATE_ACCEPTED")}else{log.Printf("XIAONEXUS_VOICE_UPDATE_REJECTED status=%d",response.StatusCode)}
 }
 func(c *client) submit(a action)bool {
  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel()
@@ -275,8 +337,8 @@ func parseGate(line string)(string,bool){
  return strings.ToLower(msg.Payload.DialogID),true
 }
 func run(ctx context.Context,injector,script string,enable bool,c *client)error{
- initial,ok:=c.status()
- if !ok||!initial.alive(){return errors.New("answer receiver unavailable; no injection")}
+ initial,err:=c.waitForReceiver(ctx)
+ if err!=nil{return err}
  pid,err:=oemPID();if err!=nil{return err}
  ctx,cancel:=context.WithCancel(ctx);defer cancel()
  inject:=exec.CommandContext(ctx,injector,"-p",strconv.Itoa(pid),"-s",script,"-i")
@@ -295,6 +357,11 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  go scanLines(ctx,logOut,events,"log")
  r:=newRouter(time.Now)
  ready:=false
+ lastActivity:=time.Now()
+ directClaims:=make(map[string]time.Time)
+ sentDirect:=false
+ updateWaitReason:=""
+ slots:=slotControl{root:os.Getenv("XIAONEXUS_SLOT_ROOT"),trial:os.Getenv("XIAONEXUS_TRIAL_SLOT"),deadline:time.Now().Add(45*time.Second)}
  // The JS gate starts BLOCKED. It may only be unblocked after both the
  // hook and the receiver report route readiness.
  waitingDialog:=""
@@ -321,11 +388,39 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   routingBlocked=true
   stopWait()
  }
- refreshRoute:=func(){
-  status,ok:=c.status()
-  if !ok||!status.routeReady(){setRoutingBlocked(true);return}
+ refreshRoute:=func() (receiverStatus,error){
+  status,ok:=c.status(ctx)
+  if !ok{status=receiverStatus{}}
+  wasTrial:=slots.trial!=""
+  if err:=slots.verify(ready,status,time.Now());err!=nil{return status,err}
+  if wasTrial && slots.trial==""{log.Print("XIAONEXUS_UPDATE_TRIAL_COMMITTED")}
+  if slots.trial!=""||!status.routeReady(){setRoutingBlocked(true);return status,nil}
   setRoutingBlocked(false)
+  if !status.AgentBusy && len(status.Rules.Direct)>0 {
+   prefixes,_:=json.Marshal(status.Rules.Direct)
+   _,_=io.WriteString(stdin,"DIRECT "+string(prefixes)+"\n")
+   sentDirect=true
+  } else if sentDirect {
+   _,_=io.WriteString(stdin,"DIRECT null\n")
+   sentDirect=false
+  }
   if waitingDialog!="" && status.WaitingDialog!=waitingDialog {stopWait()}
+  return status,nil
+ }
+ tryDirect:=func(id string) {
+  seen,ok:=directClaims[id]
+  if !ok{return}
+  d:=r.dialogs[id]
+  if d==nil{return}
+  delete(directClaims,id)
+  if d.routed || time.Since(seen)>3*time.Second || time.Since(d.at)>3*time.Second || routingBlocked{return}
+  status,ok:=c.status(ctx)
+  if !ok || !status.routeReady() || status.AgentBusy{return}
+  if voiceUpdateMode(d.query)!=""{return}
+  query:=directQuery(d.query,status.Rules.Direct)
+  if query==""{return}
+  d.routed=true
+  if c.submit(action{kind:"direct",id:id,query:query}){log.Print("XIAONEXUS_DIRECT_ACCEPTED")}
  }
  if enable&&!initial.routeReady(){log.Print("XIAONEXUS_ROUTING_BLOCKED_INITIAL_PASS_ALL")}
  tick:=time.NewTicker(time.Second);defer tick.Stop()
@@ -333,12 +428,46 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   select {
   case <-ctx.Done():return nil
   case <-tick.C:
+   for id,at:=range directClaims{if time.Since(at)>3*time.Second{delete(directClaims,id)}}
    current,e:=oemPID()
    if e!=nil||current!=pid{return errors.New("OEM PID changed; detach and fail-open")}
-   if enable&&ready{refreshRoute()}
+   if enable&&(ready||slots.trial!=""){
+    status,err:=refreshRoute()
+    if err!=nil{return err}
+    if slots.root!="" && slots.trial=="" && ready && status.alive() && status.UpdatePending {
+     var reason string
+     switch {
+     case status.DoorbellBlocked:reason="doorbell"
+     case status.AgentBusy || waitingDialog!="":reason="answer-busy"
+     case time.Since(lastActivity)<60*time.Second || len(events)!=0:reason="recent-voice-activity"
+     default:reason=androidAudioState(ctx)
+     }
+     if reason=="idle" {
+      current,ok:=c.status(ctx)
+      if ok && current.alive() && current.UpdatePending && !current.AgentBusy && !current.DoorbellBlocked && len(events)==0 {
+       blockNow()
+       return errSwitchSlot
+      }
+      reason="receiver-state-changed"
+     }
+     if reason!=updateWaitReason {
+      log.Printf("XIAONEXUS_UPDATE_WAIT reason=%s",reason)
+      updateWaitReason=reason
+     }
+    } else {updateWaitReason=""}
+   }
   case ev:=<-events:
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
+    if ev.value=="XIAONEXUS_RECOGNIZE_ACTIVITY"{lastActivity=time.Now();continue}
+    if id,ok:=strings.CutPrefix(ev.value,"XIAONEXUS_DIRECT:");ok && enable && ready && validID.MatchString(id){
+     if len(directClaims)<16{
+      id=strings.ToLower(id)
+      directClaims[id]=time.Now()
+      tryDirect(id)
+     }
+     continue
+    }
     if strings.HasPrefix(ev.value,"XIAONEXUS_GATE_NOTE:") && validGateNote.MatchString(ev.value) {log.Print(ev.value);continue}
     if strings.HasPrefix(ev.value,"XIAONEXUS_NATIVE_WAIT_") && len(ev.value)<120 {log.Print(ev.value);continue}
     if id,accepted,ok:=parseArmResult(ev.value);ok {
@@ -350,13 +479,13 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     if ev.value=="XIAONEXUS_READY"{
      ready=true
      log.Print("XiaoNexus injector READY_PASS_ALL")
-     if enable{refreshRoute()}
+     if enable{if _,err:=refreshRoute();err!=nil{return err}}
      continue
     }
     if strings.Contains(ev.value,`"type":"error"`){return errors.New("Frida JavaScript exception")}
     if id,ok:=parseGate(ev.value);ok{
      if !enable{continue}
-     status,statusOK:=c.status()
+     status,statusOK:=c.status(ctx)
      if routingBlocked||!statusOK||!status.routeReady(){
       blockNow()
       log.Print("XIAONEXUS_GATE_BLOCKED_PASS_ALL")
@@ -382,17 +511,39 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
      }
     }
    } else if ev.kind=="oem" {
+    var status receiverStatus
+    if ev.inst.kind=="asr" {lastActivity=time.Now()}
+    if ev.inst.kind=="asr" && ready && enable && !routingBlocked {
+     current,ok:=c.status(ctx)
+     if !ok||!current.routeReady(){blockNow()}else{status=current}
+    }
+    r.expansions=status.Rules.Expansions
     if ev.inst.kind=="asr" {log.Printf("XIAONEXUS_FINAL_ASR_SEEN dialog8=%s",ev.inst.id[:8])}
     a:=r.feed(ev.inst)
     if ev.inst.kind=="knowledge"&&r.previous!=nil&&r.previous.dialogID==ev.inst.id{
      log.Printf("XIAONEXUS_EXPAND_KNOWLEDGE_SAVED dialog8=%s",ev.inst.id[:8])
     }
     if a.kind==""||!ready||!enable{continue}
+    if ev.inst.kind=="asr" {
+     if mode:=voiceUpdateMode(ev.inst.text);mode!="" {
+      c.voiceUpdate(mode)
+      continue
+     }
+     if directQuery(ev.inst.text,status.Rules.Direct)!="" {
+      log.Print("XIAONEXUS_DIRECT_PREFIX_SEEN")
+      tryDirect(ev.inst.id)
+      continue
+     }
+    }
     if a.kind=="arm"||a.kind=="arm_expand"{
      if a.kind=="arm_expand"{log.Printf("XIAONEXUS_EXPAND_ARM_REQUESTED dialog8=%s",a.id[:8])}
      if routingBlocked{continue}
-     status,statusOK:=c.status()
-     if routingBlocked||!statusOK||!status.routeReady(){blockNow();continue}
+     if !status.routeReady(){blockNow();continue}
+     refusals,_:=json.Marshal(status.Rules.Refusals)
+     if _,e:=io.WriteString(stdin,"REFUSALS "+string(refusals)+"\n");e!=nil{
+      blockNow()
+      continue
+     }
      command:="ARM "
      if a.kind=="arm_expand"{command="ARMEXP "}
      if _,e:=io.WriteString(stdin,command+a.id+"\n");e!=nil{
@@ -444,5 +595,5 @@ func main(){
  go func(){<-signals;stop()}()
  c:=&client{token:secret,http:&http.Client{Timeout:3*time.Second}}
  if !*enable {log.Print("XiaoNexus OBSERVE_ONLY: no PCM or Toast will be changed")}
- if err=run(ctx,*injector,*script,*enable,c);err!=nil{log.Fatal("XiaoNexus stopped (fail-open): ",err)}
+ if err=run(ctx,*injector,*script,*enable,c);errors.Is(err,errSwitchSlot){os.Exit(75)}else if err!=nil{log.Fatal("XiaoNexus stopped (fail-open): ",err)}
 }
