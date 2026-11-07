@@ -1,0 +1,102 @@
+name: Publish signed LX04 release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version in VERSION, for example V51.7.7
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: lx04-release
+  cancel-in-progress: false
+env:
+  XIAONEXUS_UPDATE_PUBLIC_KEY: '6cab32a653717b8888a7389e85e83a71c164a3e8fe4206ddc57467e1d904d08c'
+jobs:
+  build:
+    if: github.repository == 'jarod360/XiaoNexus' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: legacy/XiaoSeek/client/go.mod
+          cache-dependency-path: legacy/XiaoSeek/client/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify requested version and build
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^V(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$ ]]
+          test "$RELEASE_VERSION" = "$(tr -d '\r\n' < VERSION)"
+          node tests/test_gate.js
+          node tests/test_native_wait.js
+          sh scripts/build-variants.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lx04-release-packages
+          if-no-files-found: error
+          path: |
+            dist/XiaoNexus-*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-*-LX04-doorbell-armv7.tar.gz
+            dist/SHA256SUMS
+  publish:
+    needs: build
+    if: github.repository == 'jarod360/XiaoNexus' && github.ref == 'refs/heads/main'
+    environment: lx04-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: lx04-release-packages
+          path: dist
+      - name: Verify and sign both LX04 packages
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNING_KEY: ${{ secrets.LX04_RELEASE_SIGNING_KEY_PEM }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY" || { echo 'Missing lx04-release signing secret'; exit 1; }
+          umask 077
+          key="$(mktemp)"
+          trap 'rm -f -- "$key"' EXIT
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          unset SIGNING_KEY
+          public_der="$(openssl pkey -in "$key" -pubout -outform DER | xxd -p -c 256)"
+          test "$public_der" = "302a300506032b6570032100${XIAONEXUS_UPDATE_PUBLIC_KEY}" || {
+            echo 'Signing key does not match the public key pinned on LX04'; exit 1;
+          }
+          (cd dist && sha256sum -c SHA256SUMS)
+          for flavor in standard doorbell; do
+            python3 scripts/sign-lx04-update.py "dist/XiaoNexus-$RELEASE_VERSION-LX04-$flavor-armv7.tar.gz" --key "$key"
+            openssl pkeyutl -verify -rawin -pubin -inkey <(openssl pkey -in "$key" -pubout) \
+              -in "dist/lx04-$flavor.json" -sigfile "dist/lx04-$flavor.json.sig"
+          done
+      - name: Publish release after all assets are attached
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --draft --title "XiaoNexus $RELEASE_VERSION · LX04" --generate-notes \
+            "dist/XiaoNexus-$RELEASE_VERSION-LX04-standard-armv7.tar.gz" \
+            "dist/XiaoNexus-$RELEASE_VERSION-LX04-doorbell-armv7.tar.gz" \
+            dist/lx04-standard.json dist/lx04-standard.json.sig \
+            dist/lx04-doorbell.json dist/lx04-doorbell.json.sig dist/SHA256SUMS
+          gh release edit "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest

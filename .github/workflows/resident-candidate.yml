@@ -1,4 +1,4 @@
-name: V51.6.0-RC resident candidate validation
+name: LX04 resident candidate validation
 on:
   pull_request:
     branches: [main]
@@ -40,11 +40,13 @@ jobs:
           sh -n scripts/build-variants.sh
           for path in runtime/device-resident/*.sh; do sh -n "$path"; done
       - name: Build both ARMv7 variants and run Go tests
+        env:
+          XIAONEXUS_UPDATE_PUBLIC_KEY: '6cab32a653717b8888a7389e85e83a71c164a3e8fe4206ddc57467e1d904d08c'
         run: sh scripts/build-variants.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: XiaoNexus-V51.6.0-RC-resident-candidate
+          name: XiaoNexus-LX04-resident-candidate
           path: |
-            dist/XiaoNexus-V51.6.0-RC-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-V51.6.0-RC-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-*-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS

@@ -186,9 +186,17 @@
     return String(input).replace(/[\s\u3000]/g,'').replace(/[,，]/g,'，').replace(/[!！]/g,'！');
   }
   var REFUSAL_KEYS = REFUSALS.map(normalizeRefusalText);
+  var customRefusals = [];
+  var directPrefixes = [], directUntil = 0;
+  var directClaims = new Map(), priorDirectInstruction = new Map();
+  var directHousekeeping = {
+    'SpeechRecognizer.RecognizeResult':true,
+    'SpeechRecognizer.StopCapture':true,
+    'Dialog.Finish':true
+  };
   function isRefusalText(text) {
     var value = normalizeRefusalText(text);
-    if (REFUSAL_KEYS.indexOf(value) !== -1) return true;
+    if (REFUSAL_KEYS.indexOf(value) !== -1 || customRefusals.indexOf(value) !== -1) return true;
     // Only the variable product slot may change; both fixed clauses and the
     // entire sentence must match. Do not swallow appended knowledge/actions.
     return /^小爱没有用过[^，。！？；：~～]{1,40}的产品，小米的产品非常好用，推荐你使用哦[~～]$/.test(value) ||
@@ -351,6 +359,30 @@
   rpc.exports = {
     onFridaStdin: function (input) {
       var command = String(input).trim();
+      if (command.indexOf('DIRECT ') === 0) {
+        directPrefixes = [];
+        directUntil = 0;
+        try {
+          var prefixes = JSON.parse(command.slice(7));
+          if (Array.isArray(prefixes) && prefixes.length <= 12 && prefixes.every(function (v) {
+            return typeof v === 'string' && /^[A-Za-z0-9\u4e00-\u9fff]{3,24}$/.test(v);
+          })) {
+            directPrefixes = prefixes.map(function (v) { return v.toLowerCase(); });
+            directUntil = Date.now() + 2500;
+          }
+        } catch (_) {}
+        return;
+      }
+      if (command.indexOf('REFUSALS ') === 0) {
+        customRefusals = [];
+        try {
+          var list = JSON.parse(command.slice(9));
+          if (Array.isArray(list) && list.length <= 12 && list.every(function (v) {
+            return typeof v === 'string' && v.length <= 160 && normalizeRefusalText(v).length > 0;
+          })) customRefusals = list.map(normalizeRefusalText);
+        } catch (_) {}
+        return;
+      }
       var waitCommand=/^(WAITBEGIN|WAITEND) ([a-f0-9]{31,32})$/.exec(command);
       if(waitCommand){
         if(waitCommand[1]==='WAITEND')nativeEnd(waitCommand[2],true,'REQUEST_END');
@@ -360,6 +392,7 @@
       if (command === 'BLOCK') {
         nativeEnd(null,true,'BLOCKED');
         routingBlocked = true;
+        directUntil = 0;
         stopGate('ROUTING_BLOCKED');
         emitHostLine('XIAONEXUS_ROUTE_BLOCKED');
         return;
@@ -426,6 +459,66 @@
       return f === null || !!Java.cast(f, Future).isDone();
     }
     var installed = [];
+    // The LX04 SDK checks this result after instruction ACK/tracking and
+    // before both SDK audio and the OEM InstructionCapability dispatcher.
+    try {
+      var classifyInstruction = E.a.overload('com.xiaomi.ai.api.common.Instruction');
+      var RecognizeResult = Java.use('com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult');
+      classifyInstruction.implementation = function (instruction) {
+        var accepted = classifyInstruction.call(this, instruction);
+        if (!accepted || (!directPrefixes.length && directClaims.size === 0)) return accepted;
+        try {
+          var id = dialogId(instruction);
+          if (!id) return accepted;
+          prune(directClaims, 120000);
+          prune(priorDirectInstruction, 12000);
+          var name = String(instruction.getFullName());
+          if (directClaims.has(id)) return directHousekeeping[name] === true;
+          var source = origins.get(id);
+          var recognizedSource = source && source.name === 'SpeechRecognizer.Recognize';
+          if (name !== 'SpeechRecognizer.RecognizeResult') {
+            if (recognizedSource && directHousekeeping[name] !== true) {
+              priorDirectInstruction.set(id, {when:Date.now()});
+            }
+            return accepted;
+          }
+          if (!directPrefixes.length) return accepted;
+          var payload = Java.cast(instruction.getPayload(), RecognizeResult);
+          var results = payload.getResults();
+          if (!payload.isFinal() || !results || results.size() === 0) return accepted;
+          var text = String(results.get(0).getText()).trim();
+          if (/^(检查更新|小纽检查更新|小纽立即升级)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
+          for (var i = 0; i < directPrefixes.length; i++) {
+            var prefix = directPrefixes[i];
+            var start = text.slice(0, prefix.length);
+            if (!/^[A-Za-z0-9\u4e00-\u9fff]+$/.test(start) || start.toLowerCase() !== prefix) continue;
+            var query = text.slice(prefix.length).replace(/^[\s:：,，]+/, '');
+            if (!query || Array.from(query).length > 600) return accepted;
+            if (!recognizedSource || Date.now() - source.when > 12000) {
+              note('DIRECT_REFUSED_ORIGIN');
+              return accepted;
+            }
+            if (priorDirectInstruction.has(id)) {
+              note('DIRECT_REFUSED_PRIOR_INSTRUCTION');
+              return accepted;
+            }
+            if (routingBlocked || !ready || Date.now() > directUntil || gateDisabled || errors) {
+              note('DIRECT_REFUSED_GATE');
+              return accepted;
+            }
+            if (pending || countOwners() !== 0) {
+              note('DIRECT_REFUSED_BUSY');
+              return accepted;
+            }
+            directClaims.set(id, {when:Date.now()});
+            directUntil = 0;
+            emitHostLine('XIAONEXUS_DIRECT:' + id);
+            break;
+          }
+        } catch (_) { note('DIRECT_CLASSIFICATION_ERROR'); }
+        return accepted;
+      };
+    } catch (_) { note('DIRECT_HOOK_UNAVAILABLE'); }
     try {
       reg.implementation = function (ev) {
         var result = reg.call(this, ev);
@@ -433,7 +526,10 @@
           var name = String(ev.getFullName());
           var id = normalizeId(ev.getId());
           tally(eventTypeCounts, name);
-          if (name === 'SpeechRecognizer.Recognize') stats.recognizeEvents++;
+          if (name === 'SpeechRecognizer.Recognize') {
+            stats.recognizeEvents++;
+            if (id) emitHostLine('XIAONEXUS_RECOGNIZE_ACTIVITY');
+          }
           if (id) {
             if (name === 'SpeechRecognizer.Recognize') stats.recognizeValidIds++;
             prune(origins, ORIGIN_TTL);

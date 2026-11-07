@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XiaoNexus · LX04 管理</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#edf1ee;color:#152820;font:16px system-ui,sans-serif}header{background:#17372b;color:#fff;padding:48px max(24px,calc((100% - 760px)/2)) 64px}header p{margin:0;color:#bbd8ca;letter-spacing:.12em}h1{font-size:clamp(28px,6vw,48px);margin:.3em 0 0}main{max-width:808px;margin:-24px auto 32px;padding:0 24px}section{background:#fff;padding:24px;border-radius:16px;margin-bottom:16px;box-shadow:0 5px 24px #132e2210}h2{margin-top:0}textarea{display:block;width:100%;margin:6px 0 14px;border-radius:8px;padding:10px;font:inherit}label,input{display:block}input{width:100%;padding:12px;border:1px solid #79958a;border-radius:8px;margin:6px 0 14px;font:inherit}button{background:#205844;border:0;border-radius:8px;color:white;padding:10px 16px;cursor:pointer;font:inherit}button:disabled{opacity:.5;cursor:default}output{display:block;margin:0 0 12px;color:#813e18}pre{white-space:pre-wrap;max-height:240px;overflow:auto}aside{margin-bottom:16px;color:#813e18}
+details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bottom:14px}.active-rules{margin:6px 0 8px;color:#38564a;overflow-wrap:anywhere}.active-rules ul{margin:4px 0;padding-inline-start:22px}.built-in{font-size:.9em;color:#38564a}
+</style>
+<header><p>XIAONEXUS / LX04</p><h1>本机管理</h1></header>
+<main>
+<section id="login"><h2>登录</h2><form id="signin"><label>管理密码<input type="password" name="password" required autocomplete="current-password"></label><button>登录</button></form></section>
+<div id="dashboard" hidden>
+<section><h2>AI 接管</h2><p id="routingState"></p><button id="routing">切换</button> <button id="logout">退出登录</button></section>
+
+<section id="modelCard" hidden>
+  <h2>DeepSeek API</h2>
+  <p id="modelState"></p>
+  <p>首次部署请填写你自己的 DeepSeek API 密钥。请在可信局域网中操作。</p>
+  <form id="modelForm">
+    <label>API 地址<input id="modelEndpoint" type="url" required maxlength="512" placeholder="https://api.deepseek.com"></label>
+    <label>模型名称<input id="modelName" required maxlength="128" placeholder="deepseek-flash"></label>
+    <label>API 密钥<input id="modelKey" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"></label>
+    <button type="button" id="readModel">读取配置</button>
+    <button id="saveModel">写入配置</button>
+  </form>
+</section>
+<section id="rulesCard">
+  <h2>自定义话术</h2>
+  <p>已保存的规则会显示在输入框上方，输入框里也会预填。每行一条，各最多 12 条。</p>
+  <form id="rules">
+    <label for="refusals">漏拦截话术</label>
+    <div class="built-in">内置规则匹配完整原厂拒答，例如「对不起，我还在学习中！」。</div>
+    <div class="active-rules" id="active-refusals"></div>
+    <textarea id="refusals" rows="4"></textarea>
+    <label for="expansions">补充上一轮</label>
+    <div class="built-in">内置规则已识别「补充一下」「再讲详细一点」等跟进意图，须先有上一轮原厂知识回答。</div>
+    <div class="active-rules" id="active-expansions"></div>
+    <textarea id="expansions" rows="4"></textarea>
+    <label for="direct">直转 AI 前缀（3–24 个汉字、英文字母或数字）</label>
+    <div class="built-in">直转前缀由你设置。</div>
+    <div class="active-rules" id="active-direct"></div>
+    <textarea id="direct" rows="3"></textarea>
+    <label>试填一条原厂回复<input id="sampleReply" maxlength="256"></label>
+    <button id="saveRules">保存话术</button>
+    <button type="button" id="testRules">测试漏拦截匹配</button>
+  </form>
+</section>
+<section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button></section>
+<section><h2>最近管理事件</h2><pre id="events"></pre></section>
+<section><details id="passwordPanel"><summary>更改管理密码</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
+  <div id="currentPasswordRow" hidden><label>当前密码<input id="currentPassword" name="current-password" type="password" required autocomplete="current-password"></label></div>
+  <label>新密码（至少 8 个字符）<input id="newPassword" name="new-password" type="password" required minlength="8" autocomplete="new-password"></label>
+  <label>确认新密码<input id="confirmPassword" name="confirm-new-password" type="password" required minlength="8" autocomplete="new-password"></label>
+  <label><input id="showPasswords" type="checkbox" style="display:inline;width:auto;margin:0 6px 12px 0">显示输入的密码</label>
+  <button>保存新密码</button>
+</form></details></section>
+</div><output id="notice" role="status"></output>
+</main>
+<script>
+const el = id => document.getElementById(id);
+let status;
+async function api(path, payload) {
+  const response = await fetch('/admin/' + path, payload === undefined ? {} : {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error((await response.text()).trim());
+  if (response.status !== 204) return response.json();
+}
+function signedOut() {
+  el('login').hidden = false;
+  el('dashboard').hidden = true;
+  el('modelKey').value = '';
+  modelLoaded = false;
+}
+let modelLoaded = false;
+function renderModel(model) {
+  el("modelState").textContent = model.keySet ? "密钥已设置。地址不变时，密钥留空可保留现有值。" : "尚未设置密钥。";
+  el("modelEndpoint").value = model.endpoint;
+  el("modelName").value = model.name;
+  el("modelKey").required = !model.keySet;
+  el("modelKey").value = "";
+  modelLoaded = true;
+}
+async function refresh(loadModel = false) {
+  status = await api('status');
+  el('login').hidden = true;
+  el('dashboard').hidden = false;
+  el('initial').hidden = !status.initial;
+  if (status.initial) el('passwordPanel').open = true;
+  el('currentPasswordRow').hidden = status.initial;
+  el('currentPassword').disabled = status.initial;
+  el('routing').disabled = status.initial;
+  el('routing').textContent = status.enabled ? '停止 AI 接管' : '启用 AI 接管';
+  el('routingState').textContent = status.enabled ? '当前已启用' : '当前已停止';
+  el("modelCard").hidden = status.initial;
+  if (loadModel || !modelLoaded) renderModel(status.model);
+  el("rulesCard").hidden = status.initial;
+  for (const key of ["refusals", "expansions", "direct"]) {
+    const saved = status.rules?.[key] || [];
+    el(key).value = saved.join("\n");
+    const summary = el("active-" + key);
+    summary.textContent = saved.length ? "已生效的自定义规则" : "暂无自定义规则";
+    if (saved.length) {
+      const list = document.createElement("ul");
+      for (const phrase of saved) {
+        const item = document.createElement("li");
+        item.textContent = phrase;
+        list.append(item);
+      }
+      summary.append(list);
+    }
+  }
+  el("updateCard").hidden = status.initial;
+  el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
+  renderUpdate(status.update);
+  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
+  el('events').textContent = (status.events || []).slice().reverse().map(event =>
+    new Date(event.time).toLocaleString() + '  ' + labels[event.event]).join('\n');
+}
+function action(control, handler) {
+  return async event => {
+    event.preventDefault();
+    control.disabled = true;
+    el('notice').textContent = '';
+    try { await handler(); }
+    catch (error) { el('notice').textContent = error.message; }
+    finally { control.disabled = control.id === 'routing' && !!status?.initial; }
+  };
+}
+el('signin').onsubmit = action(el('signin').querySelector('button'), async () => {
+  const form = el('signin');
+  const body = Object.fromEntries(new FormData(form));
+  form.reset();
+  await api('login', body);
+  await refresh();
+});
+const currentPassword = el('currentPassword');
+const newPassword = el('newPassword');
+const confirmPassword = el('confirmPassword');
+const showPasswords = el('showPasswords');
+function updatePasswordVisibility() {
+  const type = showPasswords.checked ? 'text' : 'password';
+  currentPassword.type = type;
+  newPassword.type = type;
+  confirmPassword.type = type;
+}
+showPasswords.onchange = updatePasswordVisibility;
+const changePassword = el('changePassword');
+changePassword.onsubmit = action(changePassword.querySelector('button'), async () => {
+  const password = newPassword.value;
+  const confirm = confirmPassword.value;
+  if (password !== confirm) {
+    throw new Error('两次输入的新密码不一致。');
+  }
+  const body = {password, confirm};
+  if (!status.initial) body.current = currentPassword.value;
+  await api('password', body);
+  changePassword.reset();
+  updatePasswordVisibility();
+  signedOut();
+  el('notice').textContent = '密码已保存，请使用新密码登录。';
+});
+el('routing').onclick = action(el('routing'), async () => {
+  await api('routing', !status.enabled);
+  await refresh();
+});
+el('logout').onclick = action(el('logout'), async () => {
+  await api('logout', {});
+  signedOut();
+});
+const updateLabels = {checking:"正在处理更新请求…",available:"发现已签名更新",staged:"已校验并暂存",pending:"等待设备空闲后安装。安装期间管理页会短暂断开。",unavailable:"暂无可用更新，或更新请求失败。"};
+function renderUpdate(update) {
+  el("updateState").textContent = (updateLabels[update.state] || "可检查 GitHub Releases 上的已签名更新。") +
+    (update.version ? " " + update.version : "");
+  el("checkUpdate").disabled = update.busy;
+  el("stageUpdate").disabled = update.busy || update.state !== "available";
+  el("applyUpdate").disabled = update.busy || update.state !== "staged";
+}
+async function update(path) {
+  await api("update/" + path, {});
+  let current;
+  do {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    current = (await api("status")).update;
+    renderUpdate(current);
+  } while (current.busy);
+  await refresh();
+}
+el("checkUpdate").onclick = () => update("check").catch(error => el("notice").textContent = error.message);
+el("stageUpdate").onclick = () => update("stage").catch(error => el("notice").textContent = error.message);
+el("applyUpdate").onclick = () => update("apply").catch(error => el("notice").textContent = error.message);
+function rules() {
+  return Object.fromEntries(["refusals", "expansions", "direct"].map(key =>
+    [key, el(key).value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)]));
+}
+el("rules").onsubmit = action(el("saveRules"), async () => {
+  await api("rules", rules());
+  await refresh();
+  el("notice").textContent = "话术已保存。";
+});
+el("testRules").onclick = action(el("testRules"), async () => {
+  const result = await api("rules/test", {rules:rules(), reply:el("sampleReply").value});
+  el("notice").textContent = result.matched ? "匹配当前编辑的一条漏拦截话术。" : "未匹配当前编辑的漏拦截话术。";
+});
+el("readModel").onclick = action(el("readModel"), async () => {
+  renderModel((await api("status")).model);
+  el("notice").textContent = "已读取当前生效的 API 配置。";
+});
+el("modelForm").onsubmit = action(el("saveModel"), async () => {
+  await api("model", {endpoint:el("modelEndpoint").value, name:el("modelName").value, key:el("modelKey").value});
+  el("modelKey").value = "";
+  await refresh(true);
+  el("notice").textContent = "API 设置已保存，下一次 AI 请求将使用新设置。";
+});
+refresh().catch(signedOut);
+</script>
+</html>

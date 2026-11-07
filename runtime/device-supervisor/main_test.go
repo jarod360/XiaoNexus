@@ -1,6 +1,9 @@
 package main
 
 import (
+ "context"
+ "io"
+ "net/http"
  "encoding/json"
  "fmt"
  "path/filepath"
@@ -211,4 +214,40 @@ func TestObserved31CharacterDialogFlowsWithoutPadding(t *testing.T){
 }
 func TestDialogIDBoundsRemainStrict(t *testing.T){
  for _,id:=range []string{strings.Repeat("a",30),strings.Repeat("a",33),strings.Repeat("g",31)}{if validID.MatchString(id){t.Fatal("invalid ID accepted")}}
+}
+
+type receiverTestTransport func(*http.Request) (*http.Response,error)
+
+func (f receiverTestTransport) RoundTrip(r *http.Request) (*http.Response,error) {
+ return f(r)
+}
+
+func TestWaitForReceiverAllowsSlowBootAndBlockedRouting(t *testing.T) {
+ calls:=0
+ c:=&client{token:"fixture",http:&http.Client{Transport:receiverTestTransport(func(r *http.Request)(*http.Response,error){
+  calls++
+  if r.URL.Path!="/v1/health"||r.Header.Get("Authorization")!="Bearer fixture"{t.Fatal("unexpected health request")}
+  if calls==1{return &http.Response{StatusCode:http.StatusServiceUnavailable,Body:io.NopCloser(strings.NewReader(""))},nil}
+  return &http.Response{StatusCode:http.StatusOK,Body:io.NopCloser(strings.NewReader(`{"healthy":true,"routing_blocked":true,"no_global_mute":true}`))},nil
+ })}}
+ ctx,cancel:=context.WithTimeout(context.Background(),4*time.Second)
+ defer cancel()
+ status,err:=c.waitForReceiver(ctx)
+ if err!=nil||calls!=2||!status.alive()||status.routeReady(){t.Fatalf("status=%+v calls=%d err=%v",status,calls,err)}
+}
+
+func TestWaitForReceiverHonorsCancellation(t *testing.T) {
+ ctx,cancel:=context.WithCancel(context.Background())
+ c:=&client{http:&http.Client{Transport:receiverTestTransport(func(r *http.Request)(*http.Response,error){
+  cancel()
+  <-r.Context().Done()
+  return nil,r.Context().Err()
+ })}}
+ if _,err:=c.waitForReceiver(ctx);err!=context.Canceled{t.Fatalf("got %v",err)}
+}
+
+func TestVoiceUpdateModeAcceptsUnprefixedCheck(t *testing.T) {
+ for utterance,want:=range map[string]string{"检查更新":"check","检查更新。":"check","小纽检查更新":"check","小纽立即升级":"apply","检查更新是什么":"","立即升级":""}{
+  if got:=voiceUpdateMode(utterance);got!=want{t.Errorf("%q: got %q want %q",utterance,got,want)}
+ }
 }
