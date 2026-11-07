@@ -1,4 +1,4 @@
-name: XiaoNexus V51.x Test Builds
+name: XiaoNexus LX04 Test Builds
 on:
   workflow_dispatch:
   push:
@@ -57,8 +57,8 @@ jobs:
         with:
           name: XiaoNexus-LX04-test-build
           path: |
-            dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V*-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS
       - name: Publish preview-tag assets only
         if: startsWith(github.ref, 'refs/tags/')
@@ -73,6 +73,6 @@ jobs:
             Standard excludes doorbell; Doorbell retains the original personal guard.
             Do not uninstall a working XiaoSeek until real-device acceptance.
           files: |
-            dist/XiaoNexus-V51.*-LX04-standard-armv7.tar.gz
-            dist/XiaoNexus-V51.*-LX04-doorbell-armv7.tar.gz
+            dist/XiaoNexus-V*-LX04-standard-armv7.tar.gz
+            dist/XiaoNexus-V*-LX04-doorbell-armv7.tar.gz
             dist/SHA256SUMS

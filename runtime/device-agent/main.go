@@ -280,9 +280,10 @@ func main() {
  if err := runtimeenv.ConfigureDNSFromEnv(); err != nil { log.Fatal("invalid private DNS configuration") }
  cfg, err := xiaobot.NewConfigFromFile(*config)
  if err != nil || cfg == nil {
-  cfg = &xiaobot.Config{Hardware: "LX04"}
+  cfg = &xiaobot.Config{Hardware: "LX04", UseCommand: true}
   if err != nil && !errors.Is(err, os.ErrNotExist) { log.Print("Existing config could not be loaded") }
  }
+ xiaobot.ParseHardwareCommandDict("xiaomi.ini")
  cfg.TokenPath = filepath.Join(filepath.Dir(*config), ".mi.token")
  s := &server{seen: make(map[string]time.Time), key: key}
  xiaomi := &xiaomiSetup{dir: filepath.Dir(*secretPath), base: *cfg, server: s}
