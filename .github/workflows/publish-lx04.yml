@@ -93,8 +93,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          title="XiaoNexus $RELEASE_VERSION · LX04"
+          if [[ "$RELEASE_VERSION" == V52.0.0 ]]; then
+            title="XiaoNexus V52.0 RC · LX04"
+          fi
           gh release create "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --draft --title "XiaoNexus $RELEASE_VERSION · LX04" --generate-notes \
+            --draft --title "$title" --generate-notes \
             "dist/XiaoNexus-$RELEASE_VERSION-LX04-standard-armv7.tar.gz" \
             "dist/XiaoNexus-$RELEASE_VERSION-LX04-doorbell-armv7.tar.gz" \
             dist/lx04-standard.json dist/lx04-standard.json.sig \

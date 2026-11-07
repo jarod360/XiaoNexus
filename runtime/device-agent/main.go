@@ -93,6 +93,7 @@ type server struct {
  ttsMu sync.Mutex
  authRefreshAt time.Time
  model atomic.Pointer[voiceanswer.Engine]
+ boxMu sync.RWMutex
  box speechBox
  doorbell *doorbellGuard
  generation uint64
@@ -100,6 +101,17 @@ type server struct {
  cancel context.CancelFunc
  seen map[string]time.Time
  key string
+}
+func (s *server) speaker() speechBox {
+ s.boxMu.RLock()
+ defer s.boxMu.RUnlock()
+ return s.box
+}
+func (s *server) setSpeaker(box speechBox) {
+ s.preemptForDoorbell()
+ s.boxMu.Lock()
+ s.box = box
+ s.boxMu.Unlock()
 }
 func (s *server) routingPaused() bool {
  return s.managementFault || (s.admin != nil && s.admin.disabled.Load())
@@ -126,13 +138,14 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   w.Header().Set("Content-Type", "application/json")
   // The host must not arm refusal PCM if the personal doorbell receiver
   // would reject the follow-up DeepSeek request.
-  healthy := s.box != nil
+  healthy := !s.managementFault
+  speakerReady := s.speaker() != nil
   modelReady := s.model.Load() != nil
   blocked := healthy && s.doorbell != nil && s.doorbell.check(r.Context())
   paused := s.routingPaused()
-  ready := healthy && modelReady && !blocked && !paused
+  ready := healthy && speakerReady && modelReady && !blocked && !paused
   mode := "on-device-answer-only"
-  if !healthy {
+  if !speakerReady {
    mode = "receiver-unavailable"
   } else if !modelReady {
    mode = "model-not-configured"
@@ -158,13 +171,13 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    UpdatePending bool `json:"update_pending"`
    Rules *adminRules `json:"rules,omitempty"`
    WaitingDialog string `json:"waiting_dialog_id"`
-  }{healthy, ready, blocked || paused || !modelReady, mode, true, busy, blocked, s.admin != nil && s.admin.updatePending(), rules, waiting}
+  }{healthy, ready, blocked || paused || !modelReady || !speakerReady, mode, true, busy, blocked, s.admin != nil && s.admin.updatePending(), rules, waiting}
   _ = json.NewEncoder(w).Encode(status)
   return
  }
  if r.URL.Path != "/v1/query" || r.Method != http.MethodPost { http.NotFound(w, r); return }
  model := s.model.Load()
- if model == nil || s.box == nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
+ if model == nil || s.speaker() == nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
  var req request
  decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
  decoder.DisallowUnknownFields()
@@ -215,14 +228,16 @@ func (s *server) finishWaiting(generation uint64) {
 func (s *server) nativeSpeech(ctx context.Context,text string) error {
  s.ttsMu.Lock();defer s.ttsMu.Unlock()
  if err:=ctx.Err();err!=nil{return err}
- err:=s.box.MiTTSContext(ctx,text)
+ box:=s.speaker()
+ if box==nil{return errors.New("speaker unavailable")}
+ err:=box.MiTTSContext(ctx,text)
  if err==nil||ctx.Err()!=nil||!strings.Contains(err.Error(),"HTTP 401;"){return err}
  if !s.authRefreshAt.IsZero()&&time.Since(s.authRefreshAt)<5*time.Minute{return err}
  s.authRefreshAt=time.Now()
  log.Print("MIOT_TTS_AUTH401_CACHED_PASS_REFRESH_ONCE")
- if refreshErr:=s.box.RefreshMIoTCachedSID(ctx);refreshErr!=nil{return refreshErr}
+ if refreshErr:=box.RefreshMIoTCachedSID(ctx);refreshErr!=nil{return refreshErr}
  if err:=ctx.Err();err!=nil{return err}
- return s.box.MiTTSContext(ctx,text)
+ return box.MiTTSContext(ctx,text)
 }
 func (s *server) answer(ctx context.Context, generation uint64, req request, model *voiceanswer.Engine) {
  defer func(){
@@ -264,11 +279,13 @@ func main() {
  xiaobot.FixedZone()
  if err := runtimeenv.ConfigureDNSFromEnv(); err != nil { log.Fatal("invalid private DNS configuration") }
  cfg, err := xiaobot.NewConfigFromFile(*config)
- if err != nil || cfg == nil || cfg.NeedSetup() || cfg.Hardware != "LX04" { log.Fatal("LX04 configuration invalid") }
+ if err != nil || cfg == nil {
+  cfg = &xiaobot.Config{Hardware: "LX04"}
+  if err != nil && !errors.Is(err, os.ErrNotExist) { log.Print("Existing config could not be loaded") }
+ }
  cfg.TokenPath = filepath.Join(filepath.Dir(*config), ".mi.token")
- box := xiaobot.NewXiaoMi(cfg)
- if err := box.InitMiBox(); err != nil { log.Fatal("Xiaomi authentication failed") }
- s := &server{box: box, seen: make(map[string]time.Time), key: key}
+ s := &server{seen: make(map[string]time.Time), key: key}
+ xiaomi := &xiaomiSetup{dir: filepath.Dir(*secretPath), base: *cfg, server: s}
  applyModel := func(settings adminModel, legacy bool) {
   if settings.Key == "" {
    s.model.Store(nil)
@@ -291,6 +308,7 @@ func main() {
   s.managementFault = true
   log.Print("management unavailable; routing paused")
  } else {
+  s.admin.xiaomi = xiaomi
   s.admin.model = model
   s.admin.applyModel = applyModel
   if err := s.admin.loadModel(); err != nil { log.Print("management model settings invalid; using existing configuration") }
@@ -302,6 +320,7 @@ func main() {
  listener, err := net.Listen("tcp", address)
  if err != nil { log.Fatal("loopback listen failed: ", err) }
  srv := &http.Server{Handler: http.HandlerFunc(s.handler), ReadHeaderTimeout: 3*time.Second, ReadTimeout: 8*time.Second, WriteTimeout: 10*time.Second}
+ go xiaomi.restore(ctx)
  var lan *http.Server
  if s.admin != nil {
   lanListener, err := net.Listen("tcp4", lanAdminAddress)
@@ -310,9 +329,18 @@ func main() {
   } else {
    lan = &http.Server{Handler: http.HandlerFunc(s.admin.serveLAN), ReadHeaderTimeout: 3*time.Second, ReadTimeout: 8*time.Second, WriteTimeout: 10*time.Second}
    go func(){
-    if err := lan.Serve(lanListener); err != nil && !errors.Is(err,http.ErrServerClosed) {
-     log.Print("LAN management server stopped: ", err)
+    cert := filepath.Join(filepath.Dir(*secretPath), "admin-tls.crt")
+    privateKey := filepath.Join(filepath.Dir(*secretPath), "admin-tls.key")
+    defer lanListener.Close()
+    var err error
+    _, certErr := os.Stat(cert)
+    _, keyErr := os.Stat(privateKey)
+    if errors.Is(certErr, os.ErrNotExist) && errors.Is(keyErr, os.ErrNotExist) {
+     err = lan.Serve(lanListener)
+    } else {
+     err = lan.ServeTLS(lanListener, cert, privateKey)
     }
+    if err != nil && !errors.Is(err,http.ErrServerClosed) { log.Print("LAN management server stopped: ", err) }
    }()
   }
  }

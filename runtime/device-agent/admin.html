@@ -6,24 +6,64 @@
 <style>
 *{box-sizing:border-box}body{margin:0;background:#edf1ee;color:#152820;font:16px system-ui,sans-serif}header{background:#17372b;color:#fff;padding:48px max(24px,calc((100% - 760px)/2)) 64px}header p{margin:0;color:#bbd8ca;letter-spacing:.12em}h1{font-size:clamp(28px,6vw,48px);margin:.3em 0 0}main{max-width:808px;margin:-24px auto 32px;padding:0 24px}section{background:#fff;padding:24px;border-radius:16px;margin-bottom:16px;box-shadow:0 5px 24px #132e2210}h2{margin-top:0}textarea{display:block;width:100%;margin:6px 0 14px;border-radius:8px;padding:10px;font:inherit}label,input{display:block}input{width:100%;padding:12px;border:1px solid #79958a;border-radius:8px;margin:6px 0 14px;font:inherit}button{background:#205844;border:0;border-radius:8px;color:white;padding:10px 16px;cursor:pointer;font:inherit}button:disabled{opacity:.5;cursor:default}output{display:block;margin:0 0 12px;color:#813e18}pre{white-space:pre-wrap;max-height:240px;overflow:auto}aside{margin-bottom:16px;color:#813e18}
 details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bottom:14px}.active-rules{margin:6px 0 8px;color:#38564a;overflow-wrap:anywhere}.active-rules ul{margin:4px 0;padding-inline-start:22px}.built-in{font-size:.9em;color:#38564a}
+button,select{min-height:44px}button.secondary{color:#205844;background:#e5f0e9}button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #4d9e78;outline-offset:2px}
+body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125deg,#14372a,#266447)}h2,h3{line-height:1.25}h2{font-size:1.32rem;margin-bottom:12px}section>p{margin:8px 0 16px}details{margin:12px 0}select{width:100%;padding:8px;margin:6px 0 14px;font:inherit;border:1px solid #79958a;border-radius:8px;background:white}.muted{color:#426354}.actions{display:flex;flex-wrap:wrap;gap:8px}.step{font-size:.9rem;font-weight:700;color:#205844;letter-spacing:.04em}
+#notice:not(:empty){position:sticky;bottom:12px;z-index:1;background:#fff4e9;border:1px solid #d0a084;border-radius:10px;padding:10px 14px}
+@media(max-width:520px){main{padding:0 12px}section{padding:18px}header{padding:28px 20px 50px}}
 </style>
 <header><p>XIAONEXUS / LX04</p><h1>本机管理</h1></header>
 <main>
 <section id="login"><h2>登录</h2><form id="signin"><label>管理密码<input type="password" name="password" required autocomplete="current-password"></label><button>登录</button></form></section>
 <div id="dashboard" hidden>
-<section><h2>AI 接管</h2><p id="routingState"></p><button id="routing">切换</button> <button id="logout">退出登录</button></section>
+<section>
+  <p class="step" id="setupStep" hidden></p>
+  <h2 id="dashboardTitle">设备概览</h2>
+  <p id="routingState"></p>
+  <div class="actions"><button id="routing">切换</button><button class="secondary" id="logout">退出登录</button></div>
+</section>
+<section id="xiaomiCard" hidden>
+  <h2>小米账号与音箱</h2>
+  <p id="xiaomiState" aria-live="polite"></p>
+  <p id="protectedHint" class="muted" hidden>通过安装器提供的本机入口或可信 HTTPS 连接操作授权、试播和新密钥填写。</p>
+  <details id="xiaomiEdit">
+    <summary>授权或更换小米账号</summary>
+    <form id="xiaomiStart">
+      <label>小米账号<input id="xiaomiAccount" required maxlength="160" autocomplete="off"></label>
+      <label>小米密码<input id="xiaomiPassword" type="password" required maxlength="256" autocomplete="new-password"></label>
+      <button id="xiaomiStartButton">验证账号</button>
+    </form>
+    <form id="xiaomiOTP" hidden>
+      <label id="xiaomiOTPLabel" for="xiaomiCode">验证码</label>
+      <input id="xiaomiCode" required inputmode="numeric" pattern="[0-9]{4,8}" autocomplete="one-time-code">
+      <button id="xiaomiOTPButton">提交验证码</button>
+    </form>
+    <form id="xiaomiSelect" hidden>
+      <label for="xiaomiDevice">选择这台 LX04</label>
+      <select id="xiaomiDevice" required></select>
+      <button id="xiaomiSelectButton">绑定音箱</button>
+    </form>
+    <button class="secondary" id="xiaomiCancel" hidden>取消授权</button>
+  </details>
+  <button class="secondary" id="testSpeaker" hidden>试播一句</button>
+</section>
 
 <section id="modelCard" hidden>
   <h2>DeepSeek API</h2>
   <p id="modelState"></p>
-  <p>首次部署请填写你自己的 DeepSeek API 密钥。请在可信局域网中操作。</p>
-  <form id="modelForm">
+  <details id="modelEdit">
+    <summary>查看或修改连接设置</summary>
+    <p class="muted">有现成配置时，可直接使用已保存的密钥试连。</p>
+    <form id="modelForm">
     <label>API 地址<input id="modelEndpoint" type="url" required maxlength="512" placeholder="https://api.deepseek.com"></label>
     <label>模型名称<input id="modelName" required maxlength="128" placeholder="deepseek-flash"></label>
     <label>API 密钥<input id="modelKey" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"></label>
-    <button type="button" id="readModel">读取配置</button>
-    <button id="saveModel">写入配置</button>
-  </form>
+    <div class="actions">
+      <button type="button" class="secondary" id="readModel">读取配置</button>
+      <button type="button" class="secondary" id="testModel">测试连接</button>
+      <button id="saveModel">写入配置</button>
+    </div>
+    </form>
+  </details>
 </section>
 <section id="rulesCard">
   <h2>自定义话术</h2>
@@ -82,7 +122,7 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
     </form>
   </details>
 </section>
-<section><details id="passwordPanel"><summary>更改管理密码</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
+<section id="passwordCard"><details id="passwordPanel"><summary>更改管理密码</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
   <div id="currentPasswordRow" hidden><label>当前密码<input id="currentPassword" name="current-password" type="password" required autocomplete="current-password"></label></div>
   <label>新密码（至少 8 个字符）<input id="newPassword" name="new-password" type="password" required minlength="8" autocomplete="new-password"></label>
   <label>确认新密码<input id="confirmPassword" name="confirm-new-password" type="password" required minlength="8" autocomplete="new-password"></label>
@@ -90,12 +130,14 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
   <button>保存新密码</button>
 </form></details></section>
 <section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button></section>
-<section><h2>最近管理事件</h2><pre id="events"></pre></section>
+<section id="eventCard"><h2>最近管理事件</h2><pre id="events"></pre></section>
 </div><output id="notice" role="status"></output>
 </main>
 <script>
 const el = id => document.getElementById(id);
 let status;
+let xiaomiTimer;
+let xiaomiOptions = "";
 async function api(path, payload) {
   const response = await fetch('/admin/' + path, payload === undefined ? {} : {
     method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
@@ -107,6 +149,9 @@ function signedOut() {
   el('login').hidden = false;
   el('dashboard').hidden = true;
   el('modelKey').value = '';
+  el('xiaomiPassword').value = '';
+  el('xiaomiCode').value = '';
+  clearTimeout(xiaomiTimer);
   modelLoaded = false;
   rulesLoaded = false;
   el("activeRules").open = false;
@@ -137,6 +182,8 @@ function renderModel(model) {
   el("modelEndpoint").value = model.endpoint;
   el("modelName").value = model.name;
   el("modelKey").required = !model.keySet;
+  el("modelKey").disabled = !status.protected;
+  el("testModel").disabled = !status.protected;
   el("modelKey").value = "";
   modelLoaded = true;
 }
@@ -148,14 +195,11 @@ async function refresh(loadModel = false) {
   if (status.initial) el('passwordPanel').open = true;
   el('currentPasswordRow').hidden = status.initial;
   el('currentPassword').disabled = status.initial;
-  el('routing').disabled = status.initial;
-  el('routing').textContent = status.enabled ? '停止 AI 接管' : '启用 AI 接管';
-  el('routingState').textContent = status.enabled ? '当前已启用' : '当前已停止';
-  el("modelCard").hidden = status.initial;
   if (loadModel || !modelLoaded) renderModel(status.model);
-  el("rulesCard").hidden = status.initial;
+  renderSetup();
+  renderXiaomi();
   renderRules(status.rules, !rulesLoaded);
-  el("updateCard").hidden = status.initial;
+
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
   const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
@@ -169,7 +213,10 @@ function action(control, handler) {
     el('notice').textContent = '';
     try { await handler(); }
     catch (error) { el('notice').textContent = error.message; }
-    finally { control.disabled = control.id === 'routing' && !!status?.initial; }
+    finally {
+      control.disabled = false;
+      if (status && control.id === "routing") renderSetup();
+    }
   };
 }
 el('signin').onsubmit = action(el('signin').querySelector('button'), async () => {
@@ -253,12 +300,109 @@ el("testRules").onclick = action(el("testRules"), async () => {
   const result = await api("rules/test", {rules:rules(), reply:el("sampleReply").value});
   el("notice").textContent = result.matched ? "匹配当前编辑的一条漏拦截话术。" : "未匹配当前编辑的漏拦截话术。";
 });
+function renderSetup() {
+  const bound = status.xiaomi.bound;
+  const configured = bound && status.model.keySet;
+  const firstRun = status.initial || status.setup;
+  el("dashboardTitle").textContent = firstRun ? "首次配置" : "设备概览";
+  el("setupStep").hidden = !firstRun;
+  el("setupStep").textContent = status.initial ? "第 1 步 · 设置管理密码" :
+    !bound ? "第 2 步 · 授权小米并选择音箱" :
+    (!status.model.keySet || (status.setup && !status.modelTested)) ? "第 3 步 · 配置 DeepSeek" : "第 4 步 · 试播并启用";
+  el("routing").hidden = status.initial || !configured;
+  el("routing").disabled = status.initial || !configured || (status.setup && (!status.modelTested || !status.speakerTested));
+  el("routing").textContent = status.enabled ? "停止 AI 接管" : "启用 AI 接管";
+  el("routingState").textContent = status.initial ? "请先更改初始管理密码。" :
+    !configured ? "完成音箱和模型连接后可启用 AI 接管。" :
+    status.setup ? (!status.modelTested ? "请写入模型配置并测试连接。" :
+      !status.speakerTested ? "请点击试播并确认听到声音。" : "验证已完成，可以启用 AI 接管。") :
+    status.enabled ? "小米音箱和模型已配置，AI 接管已启用。" : "小米音箱和模型已配置，AI 接管已停止。";
+  el("xiaomiCard").hidden = status.initial;
+  el("modelCard").hidden = status.initial || (status.setup && !bound);
+  el("rulesCard").hidden = firstRun;
+  el("updateCard").hidden = firstRun;
+  el("eventCard").hidden = firstRun;
+  el("passwordCard").hidden = !status.initial && firstRun;
+  if (!bound && status.protected && !status.initial) el("xiaomiEdit").open = true;
+  if (bound && (!status.model.keySet || (status.setup && !status.modelTested))) el("modelEdit").open = true;
+}
+function renderXiaomi() {
+  clearTimeout(xiaomiTimer);
+  const x = status.xiaomi;
+  const states = {
+    working:"正在连接小米服务…", otp:"小米要求二次验证，请填写收到的验证码。",
+    select:"请选择要连接的 LX04。", authorized:"音箱已授权，可发送试播。",
+    expired:"授权已过期，请重新开始。", manual_verification:"小米要求额外验证。请先在小米账号中心处理，再回来重试。",
+    login_failed:"小米登录失败，请检查账号、密码或网络。", no_devices:"该账号下没有可选择的 LX04。",
+    device_failed:"音箱连接验证失败，请检查设备状态。", save_failed:"授权配置写入失败。",
+    rate_limited:"小米暂时限制登录，请稍后再试。"
+  };
+  const busy = ["working","otp","select"].includes(x.state);
+  el("xiaomiState").textContent = (x.bound ? "当前已连接。 " : "") +
+    (states[x.state] || (x.bound ? "可试播或重新授权。" : "尚未连接音箱。"));
+  el("protectedHint").hidden = status.protected;
+  el("xiaomiEdit").hidden = !status.protected;
+  el("xiaomiStart").hidden = busy;
+  el("xiaomiOTP").hidden = x.state !== "otp";
+  el("xiaomiOTPLabel").textContent = x.method === "Email" ? "邮箱验证码" : "短信验证码";
+  el("xiaomiSelect").hidden = x.state !== "select";
+  el("xiaomiCancel").hidden = !busy;
+  el("testSpeaker").hidden = !status.protected || !x.bound || !status.model.keySet || (status.setup && !status.modelTested);
+  const choices = JSON.stringify(x.devices || []);
+  if (choices !== xiaomiOptions) {
+    const list = el("xiaomiDevice");
+    const placeholder = new Option("请选择音箱", "");
+    list.replaceChildren(placeholder);
+    for (const device of x.devices || []) {
+      list.add(new Option(device.name + " · " + device.id.slice(-6), device.id));
+    }
+    xiaomiOptions = choices;
+  }
+  if (busy) xiaomiTimer = setTimeout(() => refresh().catch(error => {
+    el("notice").textContent = error.message;
+  }), 1500);
+}
+el("xiaomiStart").onsubmit = action(el("xiaomiStartButton"), async () => {
+  const body = {Account:el("xiaomiAccount").value, Password:el("xiaomiPassword").value};
+  el("xiaomiPassword").value = "";
+  await api("xiaomi/start", body);
+  await refresh();
+});
+el("xiaomiOTP").onsubmit = action(el("xiaomiOTPButton"), async () => {
+  const code = el("xiaomiCode").value;
+  el("xiaomiCode").value = "";
+  await api("xiaomi/otp", code);
+  await refresh();
+});
+el("xiaomiSelect").onsubmit = action(el("xiaomiSelectButton"), async () => {
+  await api("xiaomi/select", el("xiaomiDevice").value);
+  await refresh();
+});
+el("xiaomiCancel").onclick = action(el("xiaomiCancel"), async () => {
+  await api("xiaomi/cancel", {});
+  await refresh();
+});
+el("testSpeaker").onclick = action(el("testSpeaker"), async () => {
+  await api("speaker/test", {});
+  await refresh();
+  el("notice").textContent = "音箱已接收试播请求，请确认实际听到播报。";
+});
+function modelDraft() {
+  return {endpoint:el("modelEndpoint").value, name:el("modelName").value, key:el("modelKey").value};
+}
+el("testModel").onclick = action(el("testModel"), async () => {
+  if (!el("modelForm").reportValidity()) return;
+  await api("model/test", modelDraft());
+  await refresh();
+  el("notice").textContent = status.modelTested ? "已保存的模型配置试连成功。" :
+    "草稿试连成功。写入配置后，再测试一次已保存的连接。";
+});
 el("readModel").onclick = action(el("readModel"), async () => {
   renderModel((await api("status")).model);
   el("notice").textContent = "已读取当前生效的 API 配置。";
 });
 el("modelForm").onsubmit = action(el("saveModel"), async () => {
-  await api("model", {endpoint:el("modelEndpoint").value, name:el("modelName").value, key:el("modelKey").value});
+  await api("model", modelDraft());
   el("modelKey").value = "";
   await refresh(true);
   el("notice").textContent = "API 设置已保存，下一次 AI 请求将使用新设置。";

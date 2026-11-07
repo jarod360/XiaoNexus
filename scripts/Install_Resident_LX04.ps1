@@ -1,12 +1,21 @@
 param(
-    [string]$Device = "192.168.0.192:5555",
+    [Parameter(Mandatory = $true)][string]$Device,
+    [string]$AdbPath,
+    [string]$FridaInjector,
+    [string]$TlsCertificate,
+    [string]$TlsPrivateKey,
     [switch]$Activate,
     [switch]$Disable
 )
-# Extract the candidate bundle under D:\Codex. No downloads or caches on C:.
 $ErrorActionPreference = "Stop"
-$adb = "D:\Codex\platform-tools\adb.exe"
-if (!(Test-Path -LiteralPath $adb)) { throw "ADB missing under D:\Codex" }
+$adb = $AdbPath
+if (!$adb) {
+    $command = Get-Command adb.exe -ErrorAction SilentlyContinue
+    if ($command) { $adb = $command.Source } else { $adb = "D:\Codex\platform-tools\adb.exe" }
+}
+if (!(Test-Path -LiteralPath $adb -PathType Leaf)) { throw "Supply the Android platform tools adb.exe with -AdbPath." }
+if ($Device -notmatch '^[A-Za-z0-9_.:-]+$') { throw "Invalid ADB serial or address" }
+if ([bool]$TlsCertificate -ne [bool]$TlsPrivateKey) { throw "Supply both TLS files or neither." }
 # A wireless ADB device may disappear from the host's device list between
 # test sessions. Reconnect explicitly before any root/device modification.
 $serialPattern = '(?m)^' + [regex]::Escape($Device) + '\s+device(?:\s|$)'
@@ -54,9 +63,6 @@ if (!(Test-Path (Join-Path $source "resident\efs_recover.js"))) {
     $source = Split-Path $PSScriptRoot -Parent
 }
 $sourceFull = [IO.Path]::GetFullPath($source)
-if (!$sourceFull.StartsWith("D:\Codex\",[StringComparison]::OrdinalIgnoreCase)) {
-    throw "Package must be extracted below D:\Codex"
-}
 $required = @(
     "bin\xiaonexus-agent",
     "bin\xiaonexus-supervisor",
@@ -93,40 +99,52 @@ if ($Activate) {
     $busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
     if ($busy.Trim()) { throw "INJECTOR_STILL_ACTIVE: wait for all old processes to exit" }
     Root 'rm -f /data/adb/xiaonexus/disabled && sh /data/adb/service.d/xiaonexus.sh' | Out-Null
+    $forward = (& $adb -s $Device forward --list) -join "`n"
+    if ($forward -notmatch ('(?m)^' + [regex]::Escape($Device) + ' tcp:18765 tcp:18765$')) {
+        & $adb -s $Device forward --no-rebind tcp:18765 tcp:18765
+        if ($LASTEXITCODE -ne 0) { throw "Could not open localhost setup port 18765." }
+    }
     Write-Host "RESIDENT_ACTIVATION_REQUESTED"
+    Write-Host "Setup page (once the service starts): http://127.0.0.1:18765/"
+    $pairing = Root 'f=/data/adb/xiaonexus/initial-password; if [ -f "$f" ]; then cat "$f"; fi'
+    if ($pairing) { Write-Host "Initial one-time setup password: $pairing" }
     Write-Host "Verify /data/adb/xiaonexus/diag/resident-status.log and real voice behavior."
     return
 }
 if ((Root 'id -u') -ne "0") { throw "Root unavailable" }
 $legacyState = Root 'if [ -d /data/adb/lx04-deepseek ]; then test -f /data/adb/lx04-deepseek/disabled && echo DISABLED || echo ACTIVE; else echo ABSENT; fi'
 if ($legacyState -match "ACTIVE") { throw "Legacy XiaoSeek must be disabled before installation" }
-if ((Root '/data/adb/xiaonexus/frida/frida-inject --version') -ne "16.6.6") {
-    throw "Requires existing official Frida 16.6.6 android-arm"
+$hasFrida = (Root 'if [ -x /data/adb/xiaonexus/frida/frida-inject ]; then /data/adb/xiaonexus/frida/frida-inject --version; fi') -eq "16.6.6"
+if (!$hasFrida -and (!$FridaInjector -or !(Test-Path -LiteralPath $FridaInjector -PathType Leaf))) {
+    throw "For a clean installation, provide the official Frida 16.6.6 android-arm injector with -FridaInjector."
 }
 $oem = Root 'parents="$(pidof zygote || true) $(pidof zygote64 || true)"; for pid in $(pidof com.xiaomi.micolauncher || true); do parent=$(sed -n "s/^PPid:[[:space:]]*//p" /proc/$pid/status 2>/dev/null || true); for z in $parents; do if [ "$parent" = "$z" ]; then echo "$pid"; break; fi; done; done'
 if ($oem -notmatch '^\d+$') { throw "OEM PID invalid" }
 $busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
 if ($busy.Trim()) { throw "Another injector is active; do not replace live files" }
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backup = "D:\Codex\XiaoNexus\backups\resident-pre-$stamp"
-New-Item -ItemType Directory -Force -Path $backup | Out-Null
-Root 'test -x /data/adb/xiaonexus/bin/xiaonexus-agent && cp /data/adb/xiaonexus/bin/xiaonexus-agent /data/local/tmp/xn-pre-agent && cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 644 /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
-try {
-    & $adb -s $Device pull /data/local/tmp/xn-pre-agent "$backup\xiaonexus-agent" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Agent backup failed" }
-    & $adb -s $Device pull /data/local/tmp/xn-pre-supervisor "$backup\xiaonexus-supervisor" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Supervisor backup failed" }
-    & $adb -s $Device pull /data/local/tmp/xn-pre-gate.js "$backup\lx04_nexus_gate.js" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "JS backup failed" }
-} finally {
-    Root 'rm -f /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
+$existing = Root 'b=/data/adb/xiaonexus; if [ -e "$b/bin/xiaonexus-agent" ] || [ -e "$b/bin/xiaonexus-supervisor" ]; then echo yes; fi'
+if ($existing) {
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $backup = Join-Path $sourceFull "backups\resident-pre-$stamp"
+    New-Item -ItemType Directory -Force -Path $backup | Out-Null
+    Root 'test -x /data/adb/xiaonexus/bin/xiaonexus-agent && cp /data/adb/xiaonexus/bin/xiaonexus-agent /data/local/tmp/xn-pre-agent && cp /data/adb/xiaonexus/bin/xiaonexus-supervisor /data/local/tmp/xn-pre-supervisor && cp /data/adb/xiaonexus/frida/lx04_nexus_gate.js /data/local/tmp/xn-pre-gate.js && chmod 644 /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
+    try {
+        & $adb -s $Device pull /data/local/tmp/xn-pre-agent "$backup\xiaonexus-agent" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Agent backup failed" }
+        & $adb -s $Device pull /data/local/tmp/xn-pre-supervisor "$backup\xiaonexus-supervisor" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Supervisor backup failed" }
+        & $adb -s $Device pull /data/local/tmp/xn-pre-gate.js "$backup\lx04_nexus_gate.js" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "JS backup failed" }
+    } finally {
+        Root 'rm -f /data/local/tmp/xn-pre-agent /data/local/tmp/xn-pre-supervisor /data/local/tmp/xn-pre-gate.js' | Out-Null
+    }
+    foreach ($f in @("$backup\xiaonexus-agent","$backup\xiaonexus-supervisor","$backup\lx04_nexus_gate.js")) {
+        if ((Get-Item -LiteralPath $f).Length -le 0) { throw "Empty backup: $f" }
+    }
+    Write-Host "BACKUP_READY=$backup"
 }
-foreach ($f in @("$backup\xiaonexus-agent","$backup\xiaonexus-supervisor","$backup\lx04_nexus_gate.js")) {
-    if ((Get-Item -LiteralPath $f).Length -le 0) { throw "Empty backup: $f" }
-}
-Write-Host "BACKUP_READY=$backup"
 # Keep new service disabled during staging; leave old program untouched.
-Root 'mkdir -p /data/adb/xiaonexus/resident /data/adb/service.d && touch /data/adb/xiaonexus/disabled && chmod 600 /data/adb/xiaonexus/disabled' | Out-Null
+Root 'umask 077; mkdir -p /data/adb/xiaonexus/bin /data/adb/xiaonexus/frida /data/adb/xiaonexus/resident /data/adb/service.d && touch /data/adb/xiaonexus/disabled && chmod 600 /data/adb/xiaonexus/disabled' | Out-Null
 $map = @(
     @("bin\xiaonexus-agent","/data/adb/xiaonexus/bin/xiaonexus-agent","700"),
     @("bin\xiaonexus-supervisor","/data/adb/xiaonexus/bin/xiaonexus-supervisor","700"),
@@ -148,6 +166,26 @@ foreach ($entry in $map) {
     $verify = "printf '%s  %s\n' '$fileHash' '" + $entry[1] + ".new' | sha256sum -c - >/dev/null"
     Root ('cp ' + $temp + ' ' + $entry[1] + '.new && ' + $verify + ' && chmod ' + $entry[2] + ' ' + $entry[1] + '.new && mv ' + $entry[1] + '.new ' + $entry[1] + ' && rm -f ' + $temp) | Out-Null
 }
+if (!$hasFrida) {
+    $temp = "/data/local/tmp/xn-frida-candidate"
+    $digest = (Get-FileHash -LiteralPath $FridaInjector -Algorithm SHA256).Hash.ToLowerInvariant()
+    & $adb -s $Device push $FridaInjector $temp | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Frida upload failed." }
+    Root ('f=/data/adb/xiaonexus/frida/frida-inject; cp ' + $temp + ' "$f.new"; printf "%s  %s\n" ' + $digest + ' "$f.new" | sha256sum -c - >/dev/null; chmod 700 "$f.new"; test "$("$f.new" --version)" = 16.6.6; mv -f "$f.new" "$f"; rm -f ' + $temp) | Out-Null
+}
+if ($TlsCertificate) {
+    foreach ($entry in @(@($TlsCertificate, 'admin-tls.crt'), @($TlsPrivateKey, 'admin-tls.key'))) {
+        $bytes = [IO.File]::ReadAllBytes($entry[0])
+        if ($bytes.Length -gt 32768) { throw "TLS PEM is too large." }
+        $encoded = [Convert]::ToBase64String($bytes)
+        Root ('umask 077; f=/data/adb/xiaonexus/' + $entry[1] + '; printf "%s" "' + $encoded + '" | base64 -d > "$f.new"; mv -f "$f.new" "$f"') | Out-Null
+    }
+}
+$random = New-Object byte[] 16
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($random) } finally { $rng.Dispose() }
+$initial = ([BitConverter]::ToString($random)).Replace("-", "").ToLowerInvariant()
+Root ('umask 077; b=/data/adb/xiaonexus; if [ ! -e "$b/config.json" ] && [ ! -e "$b/admin-password.json" ] && [ ! -e "$b/initial-password" ]; then : > "$b/setup-pending"; printf "%s\n" ' + $initial + ' > "$b/initial-password"; fi') | Out-Null
 # A deliberately staged ADB package boots its base binaries. Preserve
 # versioned runtime slots while clearing pointers to any earlier trial.
 Root 'd=/data/adb/xiaonexus/updates; if [ -d "$d" ]; then if [ -f "$d/active" ]; then mv -f "$d/active" "$d/manual-previous"; fi; rm -f "$d/pending" "$d/trial"; fi' | Out-Null

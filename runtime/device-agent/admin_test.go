@@ -4,6 +4,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +30,7 @@ func TestManagementSessionAndRouting(t *testing.T) {
 	}
 	call := func(method, path, body, origin string, cookie *http.Cookie) *deadlineRecorder {
 		r := httptest.NewRequest(method, "http://127.0.0.1:18765"+path, strings.NewReader(body))
+		r.RemoteAddr = "127.0.0.1:41234"
 		r.Header.Set("Origin", origin)
 		r.Header.Set("Content-Type", "application/json")
 		if cookie != nil {
@@ -98,4 +101,49 @@ func TestManagementSessionAndRouting(t *testing.T) {
 	}
 	a.expires = time.Now().Add(-time.Second)
 	expect(call("GET", "/admin/status", "", "", cookie), 401)
+}
+
+func TestFreshSetupKeepsRoutingDisabled(t *testing.T) {
+	dir := t.TempDir()
+	const initial = "unique-first-password-1234"
+	for name, value := range map[string]string{"initial-password": initial, "setup-pending": "", "admin-routing.json": "true"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := newAdmin(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.disabled.Load() || !a.setupPending() || !a.credential.Initial {
+		t.Fatal("fresh installation may start routing before setup")
+	}
+	call := func(peer, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:18765"+path, strings.NewReader(body))
+		req.RemoteAddr = peer
+		req.Header.Set("Origin", "http://127.0.0.1:18765")
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		response := httptest.NewRecorder()
+		a.serve(response, req)
+		return response
+	}
+	body := `{"password":"unique-first-password-1234"}`
+	if code := call("192.168.0.9:41234", "/admin/login", body, nil).Code; code != 403 {
+		t.Fatalf("initial password accepted over LAN HTTP: %d", code)
+	}
+	login := call("127.0.0.1:41234", "/admin/login", body, nil)
+	if login.Code != 204 {
+		t.Fatalf("local pairing status: %d", login.Code)
+	}
+	if err := a.setPassword("changed-password", false); err != nil {
+		t.Fatal(err)
+	}
+	a.session = login.Result().Cookies()[0].Value
+	a.expires = time.Now().Add(time.Minute)
+	if code := call("127.0.0.1:41234", "/admin/routing", "true", login.Result().Cookies()[0]).Code; code != 409 {
+		t.Fatalf("AI routing enabled without verification: %d", code)
+	}
 }
