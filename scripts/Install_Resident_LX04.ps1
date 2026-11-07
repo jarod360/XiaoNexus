@@ -16,6 +16,7 @@ if (!$adb) {
 if (!(Test-Path -LiteralPath $adb -PathType Leaf)) { throw "Supply the Android platform tools adb.exe with -AdbPath." }
 if ($Device -notmatch '^[A-Za-z0-9_.:-]+$') { throw "Invalid ADB serial or address" }
 if ([bool]$TlsCertificate -ne [bool]$TlsPrivateKey) { throw "Supply both TLS files or neither." }
+if ($TlsPrivateKey -and $Device -match ':') { throw "Stage the TLS private key over USB ADB." }
 # A wireless ADB device may disappear from the host's device list between
 # test sessions. Reconnect explicitly before any root/device modification.
 $serialPattern = '(?m)^' + [regex]::Escape($Device) + '\s+device(?:\s|$)'
