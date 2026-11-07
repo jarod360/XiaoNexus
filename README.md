@@ -31,6 +31,12 @@ V51.7.7 候选版安装后，在与音箱同一局域网的手机或电脑浏览
 - 「软件更新」依次提供「检查更新」「下载并校验」「空闲时安装」。设备从 GitHub Release 获取对应变体的签名清单，验证签名、包摘要、设备型号和版本后暂存。空闲时试运行新版，启动验证失败会回退。
 - 首次安装管理版请按部署说明操作。之后，GitHub Actions 构建 ARMv7 Standard 和 Doorbell 包，维护者用私有签名环境签名并将安装包、清单及签名一起发布到 Release。已安装管理版的设备可直接通过网页升级。
 
+### 维护者从 GitHub 发布
+
+合并后，在仓库设置中建立 `lx04-release` Environment，限制为 `main`，并将与设备公钥匹配的 Ed25519 PEM 私钥配置为 `LX04_RELEASE_SIGNING_KEY_PEM` 环境密钥。工作流需要能在无交互的情况下读取这个 PEM。私钥通过 Secret 配置。
+
+验收通过后，在 GitHub Actions 打开「Publish signed LX04 release」，选择 `main`，输入与 `VERSION` 相同的版本。Actions 编译两种 ARMv7 包并运行测试，检查签名公钥是否与设备信任的公钥一致，然后签名。所有文件上传到草稿后才公开 Release。已存在同名 Release 时先检查其资产，发布工作流不会直接覆盖。
+
 V51.7.7 目前在草稿 PR 中。云端构建产物完成签名并发布到 [GitHub Releases](https://github.com/jarod360/XiaoNexus/releases) 后，设备才能检查到该版本。
 
 ## 核心能力
