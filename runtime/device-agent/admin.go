@@ -58,6 +58,7 @@ type admin struct {
 	applyModel                 func(adminModel, bool)
 	xiaomi                     *xiaomiSetup
 	testedModel, testedSpeaker string
+	testedSpeakerBox           speechBox
 }
 
 func newAdmin(dir string, stop func()) (*admin, error) {
@@ -291,7 +292,7 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			Setup         bool              `json:"setup"`
 			ModelTested   bool              `json:"modelTested"`
 			SpeakerTested bool              `json:"speakerTested"`
-		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update, a.model.status(), a.xiaomi.status(a.session), protectedAdmin(r), a.setupPending(), a.testedModel == a.session, a.testedSpeaker == a.session})
+		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update, a.model.status(), a.xiaomi.status(a.session), protectedAdmin(r), a.setupPending(), a.testedModel == a.session, a.speakerTested()})
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/admin/xiaomi/"):
 		a.serveXiaomi(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/speaker/test":
@@ -419,7 +420,7 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		}
 		if *enabled && a.setupPending() {
 			if !protectedAdmin(r) || a.xiaomi == nil || a.xiaomi.server.speaker() == nil || a.model.Key == "" ||
-				a.testedSpeaker != a.session || a.testedModel != a.session {
+				!a.speakerTested() || a.testedModel != a.session {
 				http.Error(w, "请先测试模型连接和音箱播报。", http.StatusConflict)
 				return
 			}

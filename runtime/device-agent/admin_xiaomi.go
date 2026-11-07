@@ -59,6 +59,11 @@ func (a *admin) setupPending() bool {
 	return err == nil
 }
 
+func (a *admin) speakerTested() bool {
+	return a.xiaomi != nil && a.testedSpeaker == a.session && a.testedSpeakerBox != nil &&
+		a.xiaomi.server.speaker() == a.testedSpeakerBox
+}
+
 func protectedAdmin(r *http.Request) bool {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	ip := net.ParseIP(host)
@@ -370,6 +375,7 @@ func (a *admin) testSpeaker(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	if a.session == session && s.speaker() == speaker {
 		a.testedSpeaker = session
+		a.testedSpeakerBox = speaker
 	}
 	a.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)

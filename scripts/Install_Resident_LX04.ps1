@@ -98,14 +98,27 @@ if ($Activate) {
     if ($staged -ne "STAGED_READY") { throw "STAGE_INCOMPLETE: device remains disabled" }
     $busy = Root 'pidof xiaonexus-supervisor xiaonexus-agent frida-inject 2>/dev/null || true'
     if ($busy.Trim()) { throw "INJECTOR_STILL_ACTIVE: wait for all old processes to exit" }
-    Root 'rm -f /data/adb/xiaonexus/disabled && sh /data/adb/service.d/xiaonexus.sh' | Out-Null
-    $forward = (& $adb -s $Device forward --list) -join "`n"
-    if ($forward -notmatch ('(?m)^' + [regex]::Escape($Device) + ' tcp:18765 tcp:18765$')) {
-        & $adb -s $Device forward --no-rebind tcp:18765 tcp:18765
-        if ($LASTEXITCODE -ne 0) { throw "Could not open localhost setup port 18765." }
+    $wireless = $Device -match ':'
+    $tlsReady = (Root 'b=/data/adb/xiaonexus; if [ -s "$b/admin-tls.crt" ] && [ -s "$b/admin-tls.key" ]; then echo yes; fi') -eq 'yes'
+    $firstSetup = (Root 'test ! -f /data/adb/xiaonexus/setup-pending || echo yes') -eq 'yes'
+    if ($wireless -and $firstSetup -and !$tlsReady) {
+        throw "For first setup, activate with USB ADB or stage a trusted TLS certificate and key."
     }
+    if (!$wireless) {
+        $forward = (& $adb -s $Device forward --list) -join "`n"
+        if ($forward -notmatch ('(?m)^' + [regex]::Escape($Device) + ' tcp:18765 tcp:18765$')) {
+            & $adb -s $Device forward --no-rebind tcp:18765 tcp:18765
+            if ($LASTEXITCODE -ne 0) { throw "Could not open localhost setup port 18765." }
+        }
+    }
+    Root 'rm -f /data/adb/xiaonexus/disabled && sh /data/adb/service.d/xiaonexus.sh' | Out-Null
     Write-Host "RESIDENT_ACTIVATION_REQUESTED"
-    Write-Host "Setup page (once the service starts): http://127.0.0.1:18765/"
+    if (!$wireless) {
+        Write-Host "Setup page (once the service starts): http://127.0.0.1:18765/"
+    } elseif ($tlsReady) {
+        $ip = $Device -replace ':\d+$', ''
+        Write-Host "Setup page (once the service starts): https://${ip}:8765/"
+    }
     $pairing = Root 'f=/data/adb/xiaonexus/initial-password; if [ -f "$f" ]; then cat "$f"; fi'
     if ($pairing) { Write-Host "Initial one-time setup password: $pairing" }
     Write-Host "Verify /data/adb/xiaonexus/diag/resident-status.log and real voice behavior."

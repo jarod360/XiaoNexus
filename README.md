@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/011178e0-f7f2-49d0-a0fc-03673a98d745
 ## 从安装到第一次使用
 
 1. **准备 LX04。** 需要已有 root 的 LX04、Android Platform Tools 和官方 Frida 16.6.6 android-arm 的 `frida-inject`。从 Releases 下载适合设备的 ARMv7 安装包并解压。带门铃联动的设备选 Doorbell，其他选 Standard。
-2. **安装并打开配置页。** 在解压目录用 PowerShell 运行下列命令。首次配置建议使用 USB ADB。在安装器显示的网址打开网页，使用它显示的一次性初始密码登录。
+2. **安装并打开配置页。** 在解压目录用 PowerShell 运行下列命令。首次配置使用 USB ADB，或为局域网入口配置可信 HTTPS。在安装器显示的网址打开网页，使用它显示的一次性初始密码登录。
 
    ```powershell
    .\Install_Resident_LX04.ps1 -Device '<ADB 序列号>' -FridaInjector '<frida-inject 路径>'
