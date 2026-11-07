@@ -22,6 +22,7 @@ import (
  "regexp"
  "strings"
  "sync"
+ "sync/atomic"
  "syscall"
  "time"
 
@@ -91,7 +92,7 @@ type server struct {
  mu sync.Mutex
  ttsMu sync.Mutex
  authRefreshAt time.Time
- model *voiceanswer.Engine
+ model atomic.Pointer[voiceanswer.Engine]
  box speechBox
  doorbell *doorbellGuard
  generation uint64
@@ -125,13 +126,16 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   w.Header().Set("Content-Type", "application/json")
   // The host must not arm refusal PCM if the personal doorbell receiver
   // would reject the follow-up DeepSeek request.
-  healthy := s.model != nil && s.box != nil
+  healthy := s.box != nil
+  modelReady := s.model.Load() != nil
   blocked := healthy && s.doorbell != nil && s.doorbell.check(r.Context())
   paused := s.routingPaused()
-  ready := healthy && !blocked && !paused
+  ready := healthy && modelReady && !blocked && !paused
   mode := "on-device-answer-only"
   if !healthy {
    mode = "receiver-unavailable"
+  } else if !modelReady {
+   mode = "model-not-configured"
   } else if paused {
    mode = "routing-paused"
   } else if blocked {
@@ -154,12 +158,13 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    UpdatePending bool `json:"update_pending"`
    Rules *adminRules `json:"rules,omitempty"`
    WaitingDialog string `json:"waiting_dialog_id"`
-  }{healthy, ready, blocked || paused, mode, true, busy, blocked, s.admin != nil && s.admin.updatePending(), rules, waiting}
+  }{healthy, ready, blocked || paused || !modelReady, mode, true, busy, blocked, s.admin != nil && s.admin.updatePending(), rules, waiting}
   _ = json.NewEncoder(w).Encode(status)
   return
  }
  if r.URL.Path != "/v1/query" || r.Method != http.MethodPost { http.NotFound(w, r); return }
- if s.model == nil || s.box == nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
+ model := s.model.Load()
+ if model == nil || s.box == nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
  var req request
  decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
  decoder.DisallowUnknownFields()
@@ -191,7 +196,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  w.Header().Set("Content-Type", "application/json")
  w.WriteHeader(http.StatusAccepted)
  io.WriteString(w, `{"accepted":true}`)
- go s.answer(ctx, generation, req)
+ go s.answer(ctx, generation, req, model)
 }
 func (s *server) preemptForDoorbell() {
  s.mu.Lock()
@@ -219,14 +224,14 @@ func (s *server) nativeSpeech(ctx context.Context,text string) error {
  if err:=ctx.Err();err!=nil{return err}
  return s.box.MiTTSContext(ctx,text)
 }
-func (s *server) answer(ctx context.Context, generation uint64, req request) {
+func (s *server) answer(ctx context.Context, generation uint64, req request, model *voiceanswer.Engine) {
  defer func(){
   s.mu.Lock()
   if s.generation == generation { s.cancel = nil; s.waitingDialog = "" }
   s.mu.Unlock()
  }()
  start := time.Now()
- result, err := s.model.Answer(ctx, answerQuery(req))
+ result, err := model.Answer(ctx, answerQuery(req))
  var full string
  if err != nil { s.admin.record("answer_failed"); full = "DeepSeek 请求没有成功，请稍后重试。" } else { full = strings.TrimSpace(result.Text) }
  if full == "" || ctx.Err() != nil { return }
@@ -263,12 +268,33 @@ func main() {
  cfg.TokenPath = filepath.Join(filepath.Dir(*config), ".mi.token")
  box := xiaobot.NewXiaoMi(cfg)
  if err := box.InitMiBox(); err != nil { log.Fatal("Xiaomi authentication failed") }
- client := openai.NewClient(cfg.OpenAIKey, cfg.OpenAIBackend, "")
- client.GPTOptions = cfg.GPTOptions
- eng := &voiceanswer.Engine{Chat: client, Search: deepseekweb.NewClient(cfg.OpenAIKey), Model: cfg.Bot, Prompt: cfg.Prompt}
- s := &server{model: eng, box: box, seen: make(map[string]time.Time), key: key}
+ s := &server{box: box, seen: make(map[string]time.Time), key: key}
+ applyModel := func(settings adminModel, legacy bool) {
+  if settings.Key == "" {
+   s.model.Store(nil)
+   return
+  }
+  client := openai.NewClient(settings.Key, settings.Endpoint, "")
+  client.GPTOptions = cfg.GPTOptions
+  searchKey := ""
+  if legacy || settings.officialDeepSeek() { searchKey = settings.Key }
+  s.model.Store(&voiceanswer.Engine{Chat: client, Search: deepseekweb.NewClient(searchKey), Model: settings.Name, Prompt: cfg.Prompt})
+ }
+ model := adminModel{Endpoint: cfg.OpenAIBackend, Name: cfg.Bot, Key: cfg.OpenAIKey}
+ if model.Key == "" {
+  if model.Endpoint == "" { model.Endpoint = "https://api.deepseek.com" }
+  if model.Name == "" || model.Name == "gpt" { model.Name = "deepseek-flash" }
+ }
+ applyModel(model, true)
  s.admin, err = newAdmin(filepath.Dir(*secretPath), s.preemptForDoorbell)
- if err != nil { s.managementFault = true; log.Print("management unavailable; routing paused") }
+ if err != nil {
+  s.managementFault = true
+  log.Print("management unavailable; routing paused")
+ } else {
+  s.admin.model = model
+  s.admin.applyModel = applyModel
+  if err := s.admin.loadModel(); err != nil { log.Print("management model settings invalid; using existing configuration") }
+ }
  s.doorbell = newDoorbellGuard("http://127.0.0.1:7979/state")
  ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
  defer stop()

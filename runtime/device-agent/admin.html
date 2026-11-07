@@ -13,6 +13,17 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
 <div id="dashboard" hidden>
 <section><h2>AI 接管</h2><p id="routingState"></p><button id="routing">切换</button> <button id="logout">退出登录</button></section>
 
+<section id="modelCard" hidden>
+  <h2>DeepSeek API</h2>
+  <p id="modelState"></p>
+  <p>首次部署请填写你自己的 DeepSeek API 密钥。请在可信局域网中操作。</p>
+  <form id="modelForm">
+    <label>API 地址<input id="modelEndpoint" type="url" required maxlength="512" placeholder="https://api.deepseek.com"></label>
+    <label>模型名称<input id="modelName" required maxlength="128" placeholder="deepseek-flash"></label>
+    <label>API 密钥<input id="modelKey" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"></label>
+    <button id="saveModel">保存 API 设置</button>
+  </form>
+</section>
 <section id="rulesCard">
   <h2>自定义话术</h2>
   <p>已保存的规则会显示在输入框上方，输入框里也会预填。每行一条，各最多 12 条。</p>
@@ -58,6 +69,7 @@ async function api(path, payload) {
 function signedOut() {
   el('login').hidden = false;
   el('dashboard').hidden = true;
+  el('modelKey').value = '';
 }
 async function refresh() {
   status = await api('status');
@@ -70,6 +82,12 @@ async function refresh() {
   el('routing').disabled = status.initial;
   el('routing').textContent = status.enabled ? '停止 AI 接管' : '启用 AI 接管';
   el('routingState').textContent = status.enabled ? '当前已启用' : '当前已停止';
+  el("modelCard").hidden = status.initial;
+  const model = status.model;
+  el("modelState").textContent = model.keySet ? "密钥已设置。地址不变时，密钥留空可保留现有值。" : "尚未设置密钥。";
+  el("modelEndpoint").value = model.endpoint;
+  el("modelName").value = model.name;
+  el("modelKey").required = !model.keySet;
   el("rulesCard").hidden = status.initial;
   for (const key of ["refusals", "expansions", "direct"]) {
     const saved = status.rules?.[key] || [];
@@ -89,7 +107,7 @@ async function refresh() {
   el("updateCard").hidden = status.initial;
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
-  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
+  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
   el('events').textContent = (status.events || []).slice().reverse().map(event =>
     new Date(event.time).toLocaleString() + '  ' + labels[event.event]).join('\n');
 }
@@ -177,6 +195,12 @@ el("rules").onsubmit = action(el("saveRules"), async () => {
 el("testRules").onclick = action(el("testRules"), async () => {
   const result = await api("rules/test", {rules:rules(), reply:el("sampleReply").value});
   el("notice").textContent = result.matched ? "匹配当前编辑的一条漏拦截话术。" : "未匹配当前编辑的漏拦截话术。";
+});
+el("modelForm").onsubmit = action(el("saveModel"), async () => {
+  await api("model", {endpoint:el("modelEndpoint").value, name:el("modelName").value, key:el("modelKey").value});
+  el("modelKey").value = "";
+  await refresh();
+  el("notice").textContent = "API 设置已保存，下一次 AI 请求将使用新设置。";
 });
 refresh().catch(signedOut);
 </script>

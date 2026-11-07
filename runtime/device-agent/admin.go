@@ -14,6 +14,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,9 +37,8 @@ type adminCredential struct {
 }
 
 type adminEvent struct {
-	Time time.Time `json:"time"
-"unicode/utf8"`
-	Event string `json:"event"`
+	Time  time.Time `json:"time"`
+	Event string    `json:"event"`
 }
 
 type admin struct {
@@ -54,6 +54,8 @@ type admin struct {
 	events     []adminEvent
 	update     adminUpdateStatus
 	stop       func()
+	model      adminModel
+	applyModel func(adminModel, bool)
 }
 
 func newAdmin(dir string, stop func()) (*admin, error) {
@@ -257,7 +259,10 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			Events  []adminEvent      `json:"events"`
 			Rules   *adminRules       `json:"rules"`
 			Update  adminUpdateStatus `json:"update"`
-		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update})
+			Model   adminModelStatus  `json:"model"`
+		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update, a.model.status()})
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/model":
+		a.saveModel(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/password":
 		var body struct {
 			Current  string `json:"current"`
@@ -392,4 +397,95 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+const adminModelFile = "admin-model.json"
+
+type adminModel struct {
+	Endpoint string `json:"endpoint"`
+	Name     string `json:"name"`
+	Key      string `json:"key"`
+}
+
+type adminModelStatus struct {
+	Endpoint string `json:"endpoint"`
+	Name     string `json:"name"`
+	KeySet   bool   `json:"keySet"`
+}
+
+func validModelEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" &&
+		u.User == nil && !u.ForceQuery && u.RawQuery == "" && !strings.Contains(endpoint, "#") &&
+		len(endpoint) <= 512
+}
+
+func (m adminModel) officialDeepSeek() bool {
+	u, err := url.Parse(m.Endpoint)
+	return err == nil && u.Scheme == "https" && strings.EqualFold(u.Host, "api.deepseek.com")
+}
+
+func (m adminModel) status() adminModelStatus {
+	status := adminModelStatus{Name: m.Name, KeySet: m.Key != ""}
+	if validModelEndpoint(m.Endpoint) {
+		status.Endpoint = m.Endpoint
+	}
+	return status
+}
+
+func (m adminModel) valid() bool {
+	return validModelEndpoint(m.Endpoint) && m.Name != "" && len(m.Name) <= 128 &&
+		m.Key != "" && len(m.Key) <= 512 && !strings.ContainsAny(m.Key, " \t\r\n")
+}
+
+func (a *admin) loadModel() error {
+	data, err := os.ReadFile(filepath.Join(a.dir, adminModelFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var model adminModel
+	if json.Unmarshal(data, &model) != nil || !model.valid() {
+		return errors.New("invalid model configuration")
+	}
+	a.model = model
+	a.applyModel(model, false)
+	return nil
+}
+
+func (a *admin) saveModel(w http.ResponseWriter, r *http.Request) {
+	if a.credential.Initial {
+		http.Error(w, "请先修改初始管理密码。", http.StatusForbidden)
+		return
+	}
+	if a.applyModel == nil {
+		http.Error(w, "模型设置暂不可用。", http.StatusServiceUnavailable)
+		return
+	}
+	var model adminModel
+	if !readAdminJSON(w, r, &model) {
+		http.Error(w, "模型设置格式错误。", http.StatusBadRequest)
+		return
+	}
+	model.Endpoint = strings.TrimSpace(model.Endpoint)
+	model.Name = strings.TrimSpace(model.Name)
+	model.Key = strings.TrimSpace(model.Key)
+	if model.Key == "" && model.Endpoint == a.model.Endpoint {
+		model.Key = a.model.Key
+	}
+	if !model.valid() {
+		http.Error(w, "请填写 HTTPS API 地址和模型名称。首次设置或更换地址时，请填写对应的 API 密钥。", http.StatusBadRequest)
+		return
+	}
+	data, _ := json.Marshal(model)
+	if err := saveAdminFile(a.dir, adminModelFile, data); err != nil {
+		http.Error(w, "模型设置保存失败。", http.StatusInternalServerError)
+		return
+	}
+	a.model = model
+	a.applyModel(model, false)
+	a.event("model_saved")
+	w.WriteHeader(http.StatusNoContent)
 }
