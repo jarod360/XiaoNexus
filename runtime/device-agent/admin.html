@@ -21,7 +21,8 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
     <label>API 地址<input id="modelEndpoint" type="url" required maxlength="512" placeholder="https://api.deepseek.com"></label>
     <label>模型名称<input id="modelName" required maxlength="128" placeholder="deepseek-flash"></label>
     <label>API 密钥<input id="modelKey" type="password" maxlength="512" autocomplete="new-password" spellcheck="false"></label>
-    <button id="saveModel">保存 API 设置</button>
+    <button type="button" id="readModel">读取配置</button>
+    <button id="saveModel">写入配置</button>
   </form>
 </section>
 <section id="rulesCard">
@@ -70,8 +71,18 @@ function signedOut() {
   el('login').hidden = false;
   el('dashboard').hidden = true;
   el('modelKey').value = '';
+  modelLoaded = false;
 }
-async function refresh() {
+let modelLoaded = false;
+function renderModel(model) {
+  el("modelState").textContent = model.keySet ? "密钥已设置。地址不变时，密钥留空可保留现有值。" : "尚未设置密钥。";
+  el("modelEndpoint").value = model.endpoint;
+  el("modelName").value = model.name;
+  el("modelKey").required = !model.keySet;
+  el("modelKey").value = "";
+  modelLoaded = true;
+}
+async function refresh(loadModel = false) {
   status = await api('status');
   el('login').hidden = true;
   el('dashboard').hidden = false;
@@ -83,11 +94,7 @@ async function refresh() {
   el('routing').textContent = status.enabled ? '停止 AI 接管' : '启用 AI 接管';
   el('routingState').textContent = status.enabled ? '当前已启用' : '当前已停止';
   el("modelCard").hidden = status.initial;
-  const model = status.model;
-  el("modelState").textContent = model.keySet ? "密钥已设置。地址不变时，密钥留空可保留现有值。" : "尚未设置密钥。";
-  el("modelEndpoint").value = model.endpoint;
-  el("modelName").value = model.name;
-  el("modelKey").required = !model.keySet;
+  if (loadModel || !modelLoaded) renderModel(status.model);
   el("rulesCard").hidden = status.initial;
   for (const key of ["refusals", "expansions", "direct"]) {
     const saved = status.rules?.[key] || [];
@@ -196,10 +203,14 @@ el("testRules").onclick = action(el("testRules"), async () => {
   const result = await api("rules/test", {rules:rules(), reply:el("sampleReply").value});
   el("notice").textContent = result.matched ? "匹配当前编辑的一条漏拦截话术。" : "未匹配当前编辑的漏拦截话术。";
 });
+el("readModel").onclick = action(el("readModel"), async () => {
+  renderModel((await api("status")).model);
+  el("notice").textContent = "已读取当前生效的 API 配置。";
+});
 el("modelForm").onsubmit = action(el("saveModel"), async () => {
   await api("model", {endpoint:el("modelEndpoint").value, name:el("modelName").value, key:el("modelKey").value});
   el("modelKey").value = "";
-  await refresh();
+  await refresh(true);
   el("notice").textContent = "API 设置已保存，下一次 AI 请求将使用新设置。";
 });
 refresh().catch(signedOut);
