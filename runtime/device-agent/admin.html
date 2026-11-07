@@ -27,27 +27,61 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
 </section>
 <section id="rulesCard">
   <h2>自定义话术</h2>
-  <p>已保存的规则会显示在输入框上方，输入框里也会预填。每行一条，各最多 12 条。</p>
-  <form id="rules">
-    <label for="refusals">漏拦截话术</label>
-    <div class="built-in">内置规则匹配完整原厂拒答，例如「对不起，我还在学习中！」。</div>
-    <div class="active-rules" id="active-refusals"></div>
-    <textarea id="refusals" rows="4"></textarea>
-    <label for="expansions">补充上一轮</label>
-    <div class="built-in">内置规则已识别「补充一下」「再讲详细一点」等跟进意图，须先有上一轮原厂知识回答。</div>
-    <div class="active-rules" id="active-expansions"></div>
-    <textarea id="expansions" rows="4"></textarea>
-    <label for="direct">直转 AI 前缀（3–24 个汉字、英文字母或数字）</label>
-    <div class="built-in">直转前缀由你设置。</div>
-    <div class="active-rules" id="active-direct"></div>
-    <textarea id="direct" rows="3"></textarea>
-    <label>试填一条原厂回复<input id="sampleReply" maxlength="256"></label>
-    <button id="saveRules">保存话术</button>
-    <button type="button" id="testRules">测试漏拦截匹配</button>
-  </form>
+  <button type="button" id="readRules">读取配置</button>
+  <details id="activeRules">
+    <summary>查看当前规则（只读）</summary>
+    <h3>内置拒答与推广规则</h3>
+    <ul>
+      <li>被你问住了，看来要更努力学习了</li>
+      <li>这个问题我暂时还回答不上，需要再学习一下</li>
+      <li>这可把我难住了，看来要更努力学习了</li>
+      <li>这个问题把我难住了，我会继续努力的</li>
+      <li>这个我暂时还回答不上诶，我要再学习学习</li>
+      <li>这个问题我还在学习中，先聊点别的吧</li>
+      <li>被难住了诶，看来我还要再学习一下</li>
+      <li>对不起，我还在学习中！</li>
+      <li>不知道咋说，你还是去百度上看看大家的评价吧。</li>
+      <li>非常好用呀，具体你可以到小米商城了解详情。</li>
+      <li>小爱没有用过〈设备或品牌名〉的产品，小米的产品非常好用，推荐你使用哦～</li>
+      <li>家的〈设备名〉暂时无法购买，你可以选择最新的小米产品哦～</li>
+    </ul>
+    <p>推广模板匹配整句。尖括号标出可变化的名称位置，支持 1–40 个字符，名称内不能包含断句标点。</p>
+    <h3>内置追问规则</h3>
+    <p>「补充一下」「展开讲讲」「再详细一点」等追问可接续上一轮原厂知识回答。直转 AI 前缀由你设置。</p>
+    <h3>已保存的自定义规则</h3>
+    <dl>
+      <dt>漏拦截话术</dt><dd class="active-rules" id="active-refusals"></dd>
+      <dt>补充上一轮</dt><dd class="active-rules" id="active-expansions"></dd>
+      <dt>直转 AI 前缀</dt><dd class="active-rules" id="active-direct"></dd>
+    </dl>
+  </details>
+  <details>
+    <summary>查看填写示例</summary>
+    <ul>
+      <li>「小爱没有用过苹果新品的产品，小米的产品非常好用，推荐你使用哦～」符合内置模板。换成「vivo手机」也符合。「家的音箱暂时无法购买，你可以选择最新的小米产品哦～」中的「音箱」换成「空调」同样符合。无需按名称逐条添加。</li>
+      <li>如果实机漏拦截了一条句式不同的推广，例如「这款净水器暂不支持查询，可以到小米商城选购。」把实机播报的完整句子填入「漏拦截话术」，再用样例框测试。</li>
+      <li>「把刚才的结论再讲一遍」可作为自定义追问示例。「请问智库」可作为直转前缀示例，说「请问智库月球为什么有环形山」即可使用该前缀。</li>
+    </ul>
+  </details>
+  <details id="editRules">
+    <summary>编辑自定义规则</summary>
+    <p>草稿以已保存配置为起点。只补充未覆盖的话术。每行一条，每类最多 12 条，保存后整组生效。读取配置只刷新上方的只读列表。</p>
+    <form id="rules">
+      <label for="refusals">漏拦截话术</label>
+      <div class="built-in">内置规则匹配完整原厂拒答，例如「对不起，我还在学习中！」。</div>
+      <textarea id="refusals" rows="4"></textarea>
+      <label for="expansions">补充上一轮</label>
+      <div class="built-in">内置规则已识别「补充一下」「再讲详细一点」等跟进意图，须先有上一轮原厂知识回答。</div>
+      <textarea id="expansions" rows="4"></textarea>
+      <label for="direct">直转 AI 前缀（3–24 个汉字、英文字母或数字）</label>
+      <div class="built-in">直转前缀由你设置。</div>
+      <textarea id="direct" rows="3"></textarea>
+      <label>试填一条原厂回复<input id="sampleReply" maxlength="256"></label>
+      <button id="saveRules">保存话术</button>
+      <button type="button" id="testRules">测试草稿中的漏拦截话术</button>
+    </form>
+  </details>
 </section>
-<section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button></section>
-<section><h2>最近管理事件</h2><pre id="events"></pre></section>
 <section><details id="passwordPanel"><summary>更改管理密码</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
   <div id="currentPasswordRow" hidden><label>当前密码<input id="currentPassword" name="current-password" type="password" required autocomplete="current-password"></label></div>
   <label>新密码（至少 8 个字符）<input id="newPassword" name="new-password" type="password" required minlength="8" autocomplete="new-password"></label>
@@ -55,6 +89,8 @@ details summary{cursor:pointer;font-weight:700}details[open] summary{margin-bott
   <label><input id="showPasswords" type="checkbox" style="display:inline;width:auto;margin:0 6px 12px 0">显示输入的密码</label>
   <button>保存新密码</button>
 </form></details></section>
+<section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button></section>
+<section><h2>最近管理事件</h2><pre id="events"></pre></section>
 </div><output id="notice" role="status"></output>
 </main>
 <script>
@@ -72,8 +108,30 @@ function signedOut() {
   el('dashboard').hidden = true;
   el('modelKey').value = '';
   modelLoaded = false;
+  rulesLoaded = false;
+  el("activeRules").open = false;
+  el("editRules").open = false;
 }
 let modelLoaded = false;
+let rulesLoaded = false;
+function renderRules(savedRules, loadDraft = false) {
+  for (const key of ["refusals", "expansions", "direct"]) {
+    const saved = savedRules?.[key] || [];
+    if (loadDraft) el(key).value = saved.join("\n");
+    const summary = el("active-" + key);
+    summary.textContent = saved.length ? "" : "暂无";
+    if (saved.length) {
+      const list = document.createElement("ul");
+      for (const phrase of saved) {
+        const item = document.createElement("li");
+        item.textContent = phrase;
+        list.append(item);
+      }
+      summary.append(list);
+    }
+  }
+  rulesLoaded = true;
+}
 function renderModel(model) {
   el("modelState").textContent = model.keySet ? "密钥已设置。地址不变时，密钥留空可保留现有值。" : "尚未设置密钥。";
   el("modelEndpoint").value = model.endpoint;
@@ -96,21 +154,7 @@ async function refresh(loadModel = false) {
   el("modelCard").hidden = status.initial;
   if (loadModel || !modelLoaded) renderModel(status.model);
   el("rulesCard").hidden = status.initial;
-  for (const key of ["refusals", "expansions", "direct"]) {
-    const saved = status.rules?.[key] || [];
-    el(key).value = saved.join("\n");
-    const summary = el("active-" + key);
-    summary.textContent = saved.length ? "已生效的自定义规则" : "暂无自定义规则";
-    if (saved.length) {
-      const list = document.createElement("ul");
-      for (const phrase of saved) {
-        const item = document.createElement("li");
-        item.textContent = phrase;
-        list.append(item);
-      }
-      summary.append(list);
-    }
-  }
+  renderRules(status.rules, !rulesLoaded);
   el("updateCard").hidden = status.initial;
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
@@ -194,9 +238,15 @@ function rules() {
   return Object.fromEntries(["refusals", "expansions", "direct"].map(key =>
     [key, el(key).value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)]));
 }
+el("readRules").onclick = action(el("readRules"), async () => {
+  renderRules((await api("status")).rules);
+  el("activeRules").open = true;
+  el("notice").textContent = "已读取设备配置。";
+});
 el("rules").onsubmit = action(el("saveRules"), async () => {
   await api("rules", rules());
   await refresh();
+  el("activeRules").open = true;
   el("notice").textContent = "话术已保存。";
 });
 el("testRules").onclick = action(el("testRules"), async () => {
