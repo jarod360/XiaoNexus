@@ -518,10 +518,10 @@ test('custom complete OEM reply preserves dialog and exact-text gates',()=>{
 });
 test('direct prefix owns one genuine final ASR before its OEM audio and actions',()=>{
   const t=setup(),id=t.id('a'),other=t.id('b');
-  t.rpc.exports.onFridaStdin('DIRECT ["问问小纽"]');
+  t.rpc.exports.onFridaStdin('DIRECT ["小纽"]');
   t.event('SpeechRecognizer.Recognize',id);
-  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','问问小纽，解释月相',false));
-  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','问问小纽，解释月相'));
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','小纽，解释月相',false));
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','小纽，解释月相'));
   assert(t.controlMessages.some(m=>m[1]==='XIAONEXUS_DIRECT:'+id+'\n'));
   assert.equal(t.instruction(id,'SpeechSynthesizer.Speak'),false);
   assert.equal(t.instruction(id,'MiotController.Operate'),false);
@@ -546,7 +546,7 @@ test('direct prefix passes OEM instructions when origin, freshness or owner is u
 });
 test('reserved voice update command is never claimed by an overlapping direct prefix',()=>{
   const t=setup(),id=t.id('a');
-  t.rpc.exports.onFridaStdin('DIRECT ["检查更"]');
+  t.rpc.exports.onFridaStdin('DIRECT ["检查"]');
   t.event('SpeechRecognizer.Recognize',id);
   assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','检查更新。'));
   assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));

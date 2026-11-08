@@ -365,7 +365,7 @@
         try {
           var prefixes = JSON.parse(command.slice(7));
           if (Array.isArray(prefixes) && prefixes.length <= 12 && prefixes.every(function (v) {
-            return typeof v === 'string' && /^[A-Za-z0-9\u4e00-\u9fff]{3,24}$/.test(v);
+            return typeof v === 'string' && /^[A-Za-z0-9\u4e00-\u9fff]{2,24}$/.test(v);
           })) {
             directPrefixes = prefixes.map(function (v) { return v.toLowerCase(); });
             directUntil = Date.now() + 2500;
