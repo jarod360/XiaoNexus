@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -42,9 +45,116 @@ func (a *admin) updatePending() bool {
 	return err == nil
 }
 
+type oldUpdateSlot struct {
+	Version string `json:"version"`
+	Bytes   int64  `json:"bytes"`
+}
+
+// Caller holds a.mu, which also serializes staging and scheduling installs.
+func (a *admin) oldUpdateSlots() ([]oldUpdateSlot, error) {
+	root := a.slotRoot()
+	if root == "" || a.credential.Initial || a.rebooting || a.update.Busy {
+		return nil, errors.New("当前无法清理旧版本。")
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() {
+		return nil, errors.New("升级目录不可用。")
+	}
+	active, err := os.ReadFile(filepath.Join(root, "active"))
+	current, versionErr := versionParts(installedVersion)
+	if err != nil || versionErr != nil || strings.TrimSpace(string(active)) != installedVersion {
+		return nil, errors.New("当前版本尚未确认，无法清理。")
+	}
+	keep := make(map[string]bool)
+	for _, name := range []string{"pending", "trial", "manual-previous"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, errors.New("无法确认升级状态。")
+		}
+		version := strings.TrimSpace(string(data))
+		if !releaseVersion.MatchString(version) {
+			return nil, errors.New("无法确认升级状态。")
+		}
+		if name == "pending" || (name == "trial" && version != installedVersion) {
+			return nil, errors.New("请等升级和试运行完成后再清理。")
+		}
+		keep[version] = true
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, errors.New("无法读取旧版本。")
+	}
+	slots := make([]oldUpdateSlot, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		version, err := versionParts(name)
+		if !entry.IsDir() || err != nil || keep[name] || slices.Compare(version[:], current[:]) >= 0 {
+			continue
+		}
+		slot := oldUpdateSlot{Version: name}
+		if err := filepath.WalkDir(filepath.Join(root, name), func(_ string, item fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if item.Type().IsRegular() {
+				info, err := item.Info()
+				if err != nil {
+					return err
+				}
+				slot.Bytes += info.Size()
+			}
+			return nil
+		}); err != nil {
+			return nil, errors.New("无法统计旧版本占用。")
+		}
+		slots = append(slots, slot)
+	}
+	return slots, nil
+}
+
+func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(30 * time.Second))
+	slots, err := a.oldUpdateSlots()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(slots)
+		return
+	}
+	var versions []string
+	if !readAdminJSON(w, r, &versions) || len(versions) == 0 {
+		http.Error(w, "请先读取并确认要清理的旧版本。", http.StatusBadRequest)
+		return
+	}
+	eligible := make(map[string]bool, len(slots))
+	for _, slot := range slots {
+		eligible[slot.Version] = true
+	}
+	for _, version := range versions {
+		if !eligible[version] {
+			http.Error(w, "旧版本列表已变化，请重新读取。", http.StatusConflict)
+			return
+		}
+	}
+	for _, version := range versions {
+		if err := os.RemoveAll(filepath.Join(a.slotRoot(), version)); err != nil {
+			http.Error(w, "清理未全部完成，请重新读取剩余旧版本。", http.StatusInternalServerError)
+			return
+		}
+	}
+	a.event("old_updates_removed")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Caller holds a.mu.
 func (a *admin) startUpdate(mode string) bool {
-	if a.credential.Initial || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
+	if a.credential.Initial || a.rebooting || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
 		return false
 	}
 	a.update = adminUpdateStatus{Busy: true, State: "checking"}
@@ -74,6 +184,53 @@ func (a *admin) runUpdate(mode string) {
 	a.update = adminUpdateStatus{State: state, Version: m.Version}
 	a.event("update_" + state)
 	a.mu.Unlock()
+}
+
+// scheduleReboot is called with a.mu held after session and Origin checks.
+func (a *admin) scheduleReboot(w http.ResponseWriter) {
+	if a.credential.Initial {
+		http.Error(w, "请先更改初始管理密码。", http.StatusForbidden)
+		return
+	}
+	if a.rebooting || a.update.Busy || a.updatePending() || a.updateTrialUnconfirmed() {
+		http.Error(w, "有更新或重启正在处理，请稍后再试。", http.StatusConflict)
+		return
+	}
+	a.rebooting = true
+	a.event("device_reboot_requested")
+	w.WriteHeader(http.StatusNoContent)
+	_ = http.NewResponseController(w).Flush()
+	time.AfterFunc(time.Second, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := exec.CommandContext(ctx, "/system/bin/reboot").Run(); err != nil {
+			log.Print("device reboot command failed")
+			a.event("device_reboot_failed")
+		} else {
+			// Android may acknowledge the request before stopping the agent.
+			time.Sleep(15 * time.Second)
+		}
+		a.mu.Lock()
+		a.rebooting = false
+		a.mu.Unlock()
+	})
+}
+
+func (a *admin) updateTrialUnconfirmed() bool {
+	root := a.slotRoot()
+	if root == "" {
+		return false
+	}
+	trial, err := os.ReadFile(filepath.Join(root, "trial"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	active, err := os.ReadFile(filepath.Join(root, "active"))
+	return err != nil || strings.TrimSpace(string(trial)) != installedVersion ||
+		strings.TrimSpace(string(active)) != installedVersion
 }
 
 const releaseRoot = "https://github.com/jarod360/XiaoNexus/releases/"
