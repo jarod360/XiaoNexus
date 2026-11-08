@@ -23,10 +23,11 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
 </section>
 <section id="xiaomiCard" hidden>
   <h2>小米账号与音箱</h2>
-  <p id="xiaomiState" aria-live="polite"></p>
+  <p id="xiaomiState"></p>
   <p id="protectedHint" class="muted" hidden>通过安装器提供的本机入口或可信 HTTPS 连接操作授权、试播和新密钥填写。</p>
   <details id="xiaomiEdit">
     <summary>授权或更换小米账号</summary>
+    <p id="xiaomiAttemptState" role="status" hidden></p>
     <form id="xiaomiStart">
       <label>小米账号<input id="xiaomiAccount" required maxlength="160" autocomplete="off"></label>
       <label>小米密码<input id="xiaomiPassword" type="password" required maxlength="256" autocomplete="new-password"></label>
@@ -338,8 +339,11 @@ function renderXiaomi() {
     rate_limited:"小米暂时限制登录，请稍后再试。"
   };
   const busy = ["working","otp","select"].includes(x.state);
-  el("xiaomiState").textContent = (x.bound ? "当前已连接。 " : "") +
-    (states[x.state] || (x.bound ? "可试播或重新授权。" : "尚未连接音箱。"));
+  el("xiaomiState").textContent = x.bound ? "已有音箱绑定，可继续测试。" : "尚未连接音箱。";
+  const attempt = el("xiaomiAttemptState");
+  attempt.textContent = x.bound && x.state === "login_failed" ?
+    "本次重新授权失败，仍使用之前绑定的音箱。" : (states[x.state] || "");
+  attempt.hidden = !attempt.textContent;
   el("protectedHint").hidden = status.protected;
   el("xiaomiEdit").hidden = !status.protected;
   el("xiaomiStart").hidden = busy;
