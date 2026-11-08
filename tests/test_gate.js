@@ -79,7 +79,7 @@ function setup(unblock = true, useURLPrompt = false) {
       setWakeup(){},ttsRequest(text){
         promptRequests++;
         if (useURLPrompt) invoke(urlPlay,promptPlayer,'https://example.invalid/prompt',text);
-        else invoke(pcmPlay,promptPlayer,text,'');
+        else invoke(pcmPlay,promptPlayer,'',text);
       }
     })},
     'java.lang.System':{identityHashCode:(task)=>task.hash},

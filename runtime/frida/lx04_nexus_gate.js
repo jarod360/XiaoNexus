@@ -551,18 +551,18 @@
       var writtenBytes = pcmPlayer.class.getDeclaredField('o'); writtenBytes.setAccessible(true);
       var pcmDrain = pcmPlayer.h.overload();
       var urlComplete = urlPlayer.onComplete.overload('com.xiaomi.micolauncher.common.player.base.BasePlayer');
-      function observePromptStart(player, textIndex) {
+      function observePromptStart(player) {
         var play = player.requestPlay.overload('java.lang.String', 'java.lang.String');
-        play.implementation = function (first, second) {
+        play.implementation = function (url, content) {
           var probe = followupProbe;
           if (probe && probe.update && !probe.listening) {
-            if (String(textIndex === 0 ? first : second) === updatePromptText) {
+            if (String(content) === updatePromptText) {
               probe.player = System.identityHashCode(this);
             } else if (probe.player === System.identityHashCode(this)) {
               finishFollowupProbe('CANCELLED');
             }
           }
-          return play.call(this, first, second);
+          return play.call(this, url, content);
         };
         promptHooks.push(play);
       }
@@ -577,8 +577,8 @@
           Java.scheduleOnMainThread(function () { listenAfterPrompt(probe); });
         }, delay);
       }
-      observePromptStart(pcmPlayer, 0);
-      observePromptStart(urlPlayer, 1);
+      observePromptStart(pcmPlayer);
+      observePromptStart(urlPlayer);
       pcmDrain.implementation = function () {
         var probe = promptFor(this), delay = null;
         try {
