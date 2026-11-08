@@ -45,6 +45,12 @@ func (a *admin) updatePending() bool {
 	return err == nil
 }
 
+func (a *admin) updateReadyToInstall() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return !a.update.Busy && a.updatePending()
+}
+
 type oldUpdateSlot struct {
 	Version string `json:"version"`
 	Bytes   int64  `json:"bytes"`
@@ -153,32 +159,48 @@ func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
 }
 
 // Caller holds a.mu.
-func (a *admin) startUpdate(mode string) bool {
+func (a *admin) startUpdate(mode string, announce func(string)) bool {
 	if a.credential.Initial || a.rebooting || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
 		return false
 	}
 	a.update = adminUpdateStatus{Busy: true, State: "checking"}
-	go a.runUpdate(mode)
+	go a.runUpdate(mode, announce)
 	return true
 }
 
-func (a *admin) runUpdate(mode string) {
+func (a *admin) runUpdate(mode string, announce func(string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	client := updateHTTPClient()
 	defer client.CloseIdleConnections()
 	m, err := findUpdate(ctx, client)
 	state := "available"
+	message := "发现新版本。要安装，请说立即升级。"
 	if mode != "check" && err == nil {
+		if mode == "apply" && announce != nil {
+			announce("正在更新，请勿断电。")
+		}
 		err = stageUpdate(ctx, client, a.dir, m)
 		state = "staged"
 		if mode == "apply" && err == nil {
 			err = saveAdminFile(a.slotRoot(), "pending", []byte(m.Version+"\n"))
 			state = "pending"
+			message = "更新已准备好。音箱空闲后会自动安装，请勿断电。"
 		}
 	}
 	if err != nil {
+		switch {
+		case errors.Is(err, errNoNewerUpdate):
+			message = "当前没有可用的新版本。"
+		case state != "available":
+			message = "更新未能准备完成，请稍后再试。"
+		default:
+			message = "检查更新失败，请稍后再试。"
+		}
 		state = "unavailable"
+	}
+	if announce != nil {
+		announce(message)
 	}
 	a.mu.Lock()
 	a.update = adminUpdateStatus{State: state, Version: m.Version}

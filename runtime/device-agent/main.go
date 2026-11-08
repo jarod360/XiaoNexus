@@ -141,7 +141,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply"){http.Error(w,"invalid update request",400);return}
   if s.doorbell!=nil && s.doorbell.check(r.Context()){http.Error(w,"doorbell prioritized",503);return}
   s.admin.mu.Lock()
-  accepted:=s.admin.startUpdate(mode)
+  accepted:=s.admin.startUpdate(mode, s.announceUpdate)
   s.admin.mu.Unlock()
   if !accepted{http.Error(w,"update unavailable",409);return}
   w.WriteHeader(http.StatusNoContent)
@@ -184,7 +184,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    UpdatePending bool `json:"update_pending"`
    Rules *adminRules `json:"rules,omitempty"`
    WaitingDialog string `json:"waiting_dialog_id"`
-  }{healthy, ready, blocked || paused || !modelReady || !speakerReady, mode, true, busy, blocked, s.admin != nil && s.admin.updatePending(), rules, waiting}
+  }{healthy, ready, blocked || paused || !modelReady || !speakerReady, mode, true, busy, blocked, s.admin != nil && s.admin.updateReadyToInstall(), rules, waiting}
   _ = json.NewEncoder(w).Encode(status)
   return
  }
@@ -237,6 +237,12 @@ func (s *server) finishWaiting(generation uint64) {
  s.mu.Lock()
  defer s.mu.Unlock()
  if s.generation == generation { s.waitingDialog = "" }
+}
+func (s *server) announceUpdate(message string) {
+ ctx,cancel:=context.WithTimeout(context.Background(),8*time.Second)
+ defer cancel()
+ if s.doorbell!=nil && s.doorbell.check(ctx){return}
+ if err:=s.nativeSpeech(ctx,message);err!=nil{log.Print("update voice feedback rejected")}
 }
 func (s *server) nativeSpeech(ctx context.Context,text string) error {
  s.ttsMu.Lock();defer s.ttsMu.Unlock()
