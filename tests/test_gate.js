@@ -564,6 +564,8 @@ test('management voice commands block only their own OEM replies',()=>{
     assert(t.instruction(id,'Nlp.StartAnswer'));
     assert.equal(t.instruction(id,'SpeechSynthesizer.Speak'),false);
     assert.equal(t.instruction(id,'Template.Toast'),false);
+    assert.equal(t.instruction(id,'System.UpgradeRom'),false);
+    assert(t.instruction(other,'System.UpgradeRom'));
     assert(t.instruction(id,'Dialog.Finish'));
     assert(t.instruction(other,'SpeechSynthesizer.Speak'));
     assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
