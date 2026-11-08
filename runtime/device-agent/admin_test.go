@@ -202,6 +202,11 @@ func TestOldUpdateCleanupProtectsLiveAndReferencedSlots(t *testing.T) {
 		t.Fatalf("unexpected preview: %d %s", got.Code, got.Body)
 	}
 	writeMarker("pending", "V52.0.2")
+	reboot := httptest.NewRecorder()
+	a.scheduleReboot(reboot)
+	if reboot.Code != http.StatusConflict || a.rebooting {
+		t.Fatalf("reboot accepted during pending update: %d", reboot.Code)
+	}
 	if got := request(http.MethodPost, `["V52.0.0"]`); got.Code != http.StatusConflict {
 		t.Fatalf("cleanup accepted while an upgrade was pending: %d", got.Code)
 	}

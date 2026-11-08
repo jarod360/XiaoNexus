@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -52,7 +53,7 @@ type oldUpdateSlot struct {
 // Caller holds a.mu, which also serializes staging and scheduling installs.
 func (a *admin) oldUpdateSlots() ([]oldUpdateSlot, error) {
 	root := a.slotRoot()
-	if root == "" || a.credential.Initial || a.update.Busy {
+	if root == "" || a.credential.Initial || a.rebooting || a.update.Busy {
 		return nil, errors.New("当前无法清理旧版本。")
 	}
 	info, err := os.Lstat(root)
@@ -153,7 +154,7 @@ func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
 
 // Caller holds a.mu.
 func (a *admin) startUpdate(mode string) bool {
-	if a.credential.Initial || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
+	if a.credential.Initial || a.rebooting || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
 		return false
 	}
 	a.update = adminUpdateStatus{Busy: true, State: "checking"}
@@ -183,6 +184,53 @@ func (a *admin) runUpdate(mode string) {
 	a.update = adminUpdateStatus{State: state, Version: m.Version}
 	a.event("update_" + state)
 	a.mu.Unlock()
+}
+
+// scheduleReboot is called with a.mu held after session and Origin checks.
+func (a *admin) scheduleReboot(w http.ResponseWriter) {
+	if a.credential.Initial {
+		http.Error(w, "请先更改初始管理密码。", http.StatusForbidden)
+		return
+	}
+	if a.rebooting || a.update.Busy || a.updatePending() || a.updateTrialUnconfirmed() {
+		http.Error(w, "有更新或重启正在处理，请稍后再试。", http.StatusConflict)
+		return
+	}
+	a.rebooting = true
+	a.event("device_reboot_requested")
+	w.WriteHeader(http.StatusNoContent)
+	_ = http.NewResponseController(w).Flush()
+	time.AfterFunc(time.Second, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := exec.CommandContext(ctx, "/system/bin/reboot").Run(); err != nil {
+			log.Print("device reboot command failed")
+			a.event("device_reboot_failed")
+		} else {
+			// Android may acknowledge the request before stopping the agent.
+			time.Sleep(15 * time.Second)
+		}
+		a.mu.Lock()
+		a.rebooting = false
+		a.mu.Unlock()
+	})
+}
+
+func (a *admin) updateTrialUnconfirmed() bool {
+	root := a.slotRoot()
+	if root == "" {
+		return false
+	}
+	trial, err := os.ReadFile(filepath.Join(root, "trial"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	active, err := os.ReadFile(filepath.Join(root, "active"))
+	return err != nil || strings.TrimSpace(string(trial)) != installedVersion ||
+		strings.TrimSpace(string(active)) != installedVersion
 }
 
 const releaseRoot = "https://github.com/jarod360/XiaoNexus/releases/"

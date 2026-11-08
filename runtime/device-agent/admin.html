@@ -140,6 +140,11 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
     <div class="actions"><button id="readOldUpdates" class="secondary">查看旧版本占用</button>
     <button id="clearOldUpdates" disabled>清空列出的旧版本</button></div>
   </details>
+  <details>
+    <summary>重启 LX04</summary>
+    <p>重启整台音箱。开机后可重新打开管理页，确认 AI 接管并试问一句。</p>
+    <button id="rebootDevice" class="secondary">重启 LX04</button>
+  </details>
 </section>
 <section id="eventCard"><h2>最近管理事件</h2><pre id="events"></pre></section>
 </div><output id="notice" role="status"></output>
@@ -214,7 +219,7 @@ async function refresh(loadModel = false) {
 
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
-  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",old_updates_removed:"已清理旧版本",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
+  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",device_reboot_requested:"已请求重启 LX04",device_reboot_failed:"重启请求执行失败",old_updates_removed:"已清理旧版本",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
   el('events').textContent = (status.events || []).slice().reverse().map(event =>
     new Date(event.time).toLocaleString() + '  ' + labels[event.event]).join('\n');
 }
@@ -273,11 +278,12 @@ el('logout').onclick = action(el('logout'), async () => {
   await api('logout', {});
   signedOut();
 });
-const updateLabels = {checking:"正在处理更新请求…",available:"发现已签名更新",staged:"已校验并暂存",pending:"等待设备空闲后安装。安装期间管理页会短暂断开。",unavailable:"暂无可用更新，或更新请求失败。"};
+const updateLabels = {rebooting:"正在重启 LX04，请在开机后重新打开管理页。",checking:"正在处理更新请求…",available:"发现已签名更新",staged:"已校验并暂存",pending:"等待设备空闲后安装。安装期间管理页会短暂断开。",unavailable:"暂无可用更新，或更新请求失败。"};
 function renderUpdate(update) {
   el("updateState").textContent = (updateLabels[update.state] || "可检查 GitHub Releases 上的已签名更新。") +
     (update.version ? " " + update.version : "");
   el("checkUpdate").disabled = update.busy;
+  el("rebootDevice").disabled = update.busy || update.state === "pending";
   el("stageUpdate").disabled = update.busy || update.state !== "available";
   el("applyUpdate").disabled = update.busy || update.state !== "staged";
 }
@@ -294,6 +300,19 @@ async function update(path) {
 el("checkUpdate").onclick = () => update("check").catch(error => el("notice").textContent = error.message);
 el("stageUpdate").onclick = () => update("stage").catch(error => el("notice").textContent = error.message);
 el("applyUpdate").onclick = () => update("apply").catch(error => el("notice").textContent = error.message);
+el("rebootDevice").onclick = async () => {
+  if (!confirm("确认重启整台 LX04？正在播放的内容会中断。")) return;
+  const button = el("rebootDevice");
+  button.disabled = true;
+  try {
+    await api("device/reboot", true);
+    renderUpdate({busy:true, state:"rebooting"});
+    el("notice").textContent = "重启请求已发送。开机后请刷新管理页。";
+  } catch (error) {
+    button.disabled = false;
+    el("notice").textContent = error.message;
+  }
+};
 let oldUpdateSlots = [];
 function renderOldUpdates(slots) {
   oldUpdateSlots = slots;

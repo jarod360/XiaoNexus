@@ -53,6 +53,7 @@ type admin struct {
 	eventMu                    sync.Mutex
 	events                     []adminEvent
 	update                     adminUpdateStatus
+	rebooting                  bool
 	stop                       func()
 	model                      adminModel
 	applyModel                 func(adminModel, bool)
@@ -276,7 +277,9 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/admin/status":
 		w.Header().Set("Content-Type", "application/json")
 		update := a.update
-		if a.updatePending() && !update.Busy {
+		if a.rebooting {
+			update = adminUpdateStatus{Busy: true, State: "rebooting"}
+		} else if a.updatePending() && !update.Busy {
 			update.State = "pending"
 		}
 		_ = json.NewEncoder(w).Encode(struct {
@@ -348,6 +351,13 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(a.dir, "initial-password"))
 		a.event("password_changed")
 		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/device/reboot":
+		var confirmed bool
+		if !readAdminJSON(w, r, &confirmed) || !confirmed {
+			http.Error(w, "请先确认重启整台音箱。", http.StatusBadRequest)
+			return
+		}
+		a.scheduleReboot(w)
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/admin/update/old-slots":
 		a.serveOldUpdateSlots(w, r)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/admin/update/"):
