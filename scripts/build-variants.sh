@@ -3,7 +3,7 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=$(tr -d '\r\n' < "$ROOT/VERSION")
-case "$VERSION" in V51.*|V52.0.0|V52.0.1|V52.0.2|V52.0.3|V52.0.4|V52.0.5|V52.0.6|V52.0.7|V52.0.8|V52.0.9|V52.0.10|V52.0.11|V52.0.12|V52.0.13|V52.0.14|V52.0.15|V52.0.16|V52.0.17) ;; *) echo 'Expected V51.x or the V52.0 RC build identifier' >&2; exit 1 ;; esac
+case "$VERSION" in V51.*|V52.0.0|V52.0.1|V52.0.2|V52.0.3|V52.0.4|V52.0.5|V52.0.6|V52.0.7|V52.0.8|V52.0.9|V52.0.10|V52.0.11|V52.0.12|V52.0.13|V52.0.14|V52.0.15|V52.0.16|V52.0.17|V52.0.18) ;; *) echo 'Expected V51.x or the V52.0 RC build identifier' >&2; exit 1 ;; esac
 python3 "$ROOT/scripts/prepare-legacy-variants.py"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
