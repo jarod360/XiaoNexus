@@ -96,7 +96,7 @@ jobs:
           title="XiaoNexus $RELEASE_VERSION · LX04"
           if [[ "$RELEASE_VERSION" == V52.0.0 ]]; then
             title="XiaoNexus V52.0 RC · LX04"
-          elif [[ "$RELEASE_VERSION" == V52.0.1 || "$RELEASE_VERSION" == V52.0.2 || "$RELEASE_VERSION" == V52.0.3 || "$RELEASE_VERSION" == V52.0.4 || "$RELEASE_VERSION" == V52.0.5 || "$RELEASE_VERSION" == V52.0.6 || "$RELEASE_VERSION" == V52.0.7 || "$RELEASE_VERSION" == V52.0.8 ]]; then
+          elif [[ "$RELEASE_VERSION" == V52.0.1 || "$RELEASE_VERSION" == V52.0.2 || "$RELEASE_VERSION" == V52.0.3 || "$RELEASE_VERSION" == V52.0.4 || "$RELEASE_VERSION" == V52.0.5 || "$RELEASE_VERSION" == V52.0.6 || "$RELEASE_VERSION" == V52.0.7 || "$RELEASE_VERSION" == V52.0.8 || "$RELEASE_VERSION" == V52.0.9 ]]; then
             title="XiaoNexus $RELEASE_VERSION RC · LX04"
           fi
           gh release create "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
