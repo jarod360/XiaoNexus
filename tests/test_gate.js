@@ -56,6 +56,8 @@ function setup(unblock = true) {
     'com.xiaomi.ai.api.SpeechSynthesizer$Speak':{},
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult':{},
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem':{},
+    'android.media.ToneGenerator':{$new:()=>({startTone:()=>true,release(){}})},
+    'com.xiaomi.micolauncher.common.speech.SpeechManager':{getInstance:()=>({setWakeup(){}})},
     'java.lang.System':{identityHashCode:(task)=>task.hash},
     'java.lang.Thread':{currentThread:()=>({getId:()=>currentThread})},
     'java.util.concurrent.Future':{},
@@ -73,6 +75,7 @@ function setup(unblock = true) {
   }
   const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
+  sandbox.Java.scheduleOnMainThread=cb=>cb();
   if (unblock) rpc.exports.onFridaStdin('UNBLOCK');
   const id = ch => ch.repeat(32);
   function event(name, dialog){return invoke(reg,{}, {getFullName:()=>name,getId:()=>dialog});}
@@ -581,5 +584,20 @@ test('management voice commands leave OEM replies alone without an active gate',
     assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','当前版本'));
     assert(t.instruction(id,'SpeechSynthesizer.Speak'));
   }
+});
+test('follow-up probe waits for the tone and accepts one recognized confirmation',()=>{
+  const t=setup(),id=t.id('a'),reply=t.id('b');
+  t.rpc.exports.onFridaStdin('DIRECT []');
+  t.event('SpeechRecognizer.Recognize',id);
+  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','测试续听'));
+  assert(t.instruction(id,'Dialog.Finish'));
+  assert(!t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_LISTEN_REQUESTED')));
+  t.advance(500);
+  assert(t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_LISTEN_REQUESTED')));
+  t.event('SpeechRecognizer.Recognize',reply);
+  assert(t.instruction(reply,'SpeechRecognizer.RecognizeResult','测试完成'));
+  assert(t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_CONFIRMED')));
+  t.advance(5000);
+  assert(!t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_TIMEOUT')));
 });
 console.log('RESULT',passed,'tests PASS');
