@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -30,10 +31,12 @@ type xiaomiDevice struct {
 }
 
 type xiaomiStatus struct {
-	State   string         `json:"state"`
-	Bound   bool           `json:"bound"`
-	Method  string         `json:"method,omitempty"`
-	Devices []xiaomiDevice `json:"devices,omitempty"`
+	State       string         `json:"state"`
+	Bound       bool           `json:"bound"`
+	Saved       bool           `json:"saved"`
+	Reauthorize bool           `json:"reauthorize"`
+	Method      string         `json:"method,omitempty"`
+	Devices     []xiaomiDevice `json:"devices,omitempty"`
 }
 
 type xiaomiAttempt struct {
@@ -107,13 +110,16 @@ func (x *xiaomiSetup) status(session string) xiaomiStatus {
 	}
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	bound := x.server.speaker() != nil
+	_, err := os.Stat(filepath.Join(x.dir, xiaomiConfigFile))
+	saved := err == nil || (x.base.Account != "" && x.base.MiDID != "")
+	reauthorize := x.server.speakerNeedsAuth()
+	bound := x.server.speaker() != nil && !reauthorize
 	if x.attempt != nil && x.attempt.session == session {
 		status := x.attempt.status
-		status.Bound = bound
+		status.Bound, status.Saved, status.Reauthorize = bound, saved, reauthorize
 		return status
 	}
-	return xiaomiStatus{State: "idle", Bound: bound}
+	return xiaomiStatus{State: "idle", Bound: bound, Saved: saved, Reauthorize: reauthorize}
 }
 
 func (x *xiaomiSetup) cancel(session string) {
@@ -192,9 +198,21 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 		}
 		return
 	}
+	serial, _ := exec.CommandContext(a.Context, "/system/bin/getprop", "ro.serialno").Output()
+	wifi, _ := net.InterfaceByName("wlan0")
+	var mac net.HardwareAddr
+	if wifi != nil {
+		mac = wifi.HardwareAddr
+	}
+	localSerial := strings.TrimSpace(string(serial))
+	if localSerial == "" && len(mac) == 0 {
+		state(xiaomiStatus{State: "local_identity_unavailable"})
+		return
+	}
 	var choices []xiaomiDevice
+	verified := make(map[string]miservice.DeviceData)
 	for _, device := range devices {
-		if strings.EqualFold(device.Hardware, "LX04") && device.MiotDID != "" {
+		if matchesLocalSpeaker(device, localSerial, mac) {
 			name := device.Alias
 			if name == "" {
 				name = device.Name
@@ -203,10 +221,15 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 				name = "LX04"
 			}
 			choices = append(choices, xiaomiDevice{device.MiotDID, name})
+			verified[device.MiotDID] = device
 		}
 	}
 	if len(choices) == 0 {
-		state(xiaomiStatus{State: "no_devices"})
+		state(xiaomiStatus{State: "local_speaker_not_found"})
+		return
+	}
+	if len(choices) != 1 {
+		state(xiaomiStatus{State: "local_identity_ambiguous"})
 		return
 	}
 	state(xiaomiStatus{State: "select", Devices: choices})
@@ -221,7 +244,7 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 	cfg.Account, cfg.Password, cfg.MiDID = username, password, did
 	cfg.Hardware, cfg.TokenPath = "LX04", tokenPath
 	box := xiaobot.NewXiaoMi(&cfg)
-	if box.InitMiBox() != nil || a.Err() != nil {
+	if box.BindVerifiedSpeaker(a.Context, account, verified[did]) != nil || a.Err() != nil {
 		state(xiaomiStatus{State: "device_failed"})
 		return
 	}
@@ -236,9 +259,21 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 		a.status = xiaomiStatus{State: "save_failed"}
 		return
 	}
+	account.SetOTPProvider(nil)
 	saved = true
 	x.server.setSpeaker(box)
 	a.status = xiaomiStatus{State: "authorized"}
+}
+
+func matchesLocalSpeaker(device miservice.DeviceData, serial string, mac net.HardwareAddr) bool {
+	if !strings.EqualFold(device.Hardware, "LX04") || device.MiotDID == "" || device.DeviceID == "" {
+		return false
+	}
+	if serial != "" && strings.EqualFold(strings.TrimSpace(device.SerialNumber), serial) {
+		return true
+	}
+	deviceMAC, err := net.ParseMAC(strings.TrimSpace(device.Mac))
+	return len(mac) != 0 && err == nil && deviceMAC.String() == mac.String()
 }
 
 func (a *admin) serveXiaomi(w http.ResponseWriter, r *http.Request) {

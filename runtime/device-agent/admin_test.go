@@ -2,6 +2,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"xiaobot/miservice"
 )
 
 type deadlineRecorder struct {
@@ -145,5 +147,21 @@ func TestFreshSetupKeepsRoutingDisabled(t *testing.T) {
 	a.expires = time.Now().Add(time.Minute)
 	if code := call("127.0.0.1:41234", "/admin/routing", "true", login.Result().Cookies()[0]).Code; code != 409 {
 		t.Fatalf("AI routing enabled without verification: %d", code)
+	}
+}
+
+func TestOnlyLocalLX04MatchesBinding(t *testing.T) {
+	mac, err := net.ParseMAC("00:11:22:33:44:55")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := miservice.DeviceData{Hardware: "LX04", MiotDID: "did-local", DeviceID: "device-local", SerialNumber: "LOCAL-SERIAL"}
+	other := miservice.DeviceData{Hardware: "LX04", MiotDID: "did-other", DeviceID: "device-other", SerialNumber: "OTHER-SERIAL", Mac: "00:11:22:33:44:66"}
+	if !matchesLocalSpeaker(local, "LOCAL-SERIAL", mac) || matchesLocalSpeaker(other, "LOCAL-SERIAL", mac) {
+		t.Fatal("serial matching must select only the local speaker")
+	}
+	local.SerialNumber, local.Mac = "", "00:11:22:33:44:55"
+	if !matchesLocalSpeaker(local, "", mac) || matchesLocalSpeaker(local, "", nil) {
+		t.Fatal("MAC matching requires an available local identity")
 	}
 }

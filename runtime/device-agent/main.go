@@ -94,6 +94,7 @@ type server struct {
  authRefreshAt time.Time
  model atomic.Pointer[voiceanswer.Engine]
  boxMu sync.RWMutex
+ boxNeedsAuth bool
  box speechBox
  doorbell *doorbellGuard
  generation uint64
@@ -111,7 +112,18 @@ func (s *server) setSpeaker(box speechBox) {
  s.preemptForDoorbell()
  s.boxMu.Lock()
  s.box = box
+ s.boxNeedsAuth = false
  s.boxMu.Unlock()
+}
+func (s *server) speakerNeedsAuth() bool {
+ s.boxMu.RLock()
+ defer s.boxMu.RUnlock()
+ return s.boxNeedsAuth
+}
+func (s *server) updateSpeakerAuth(box speechBox, needsAuth bool) {
+ s.boxMu.Lock()
+ defer s.boxMu.Unlock()
+ if s.box == box { s.boxNeedsAuth = needsAuth }
 }
 func (s *server) routingPaused() bool {
  return s.managementFault || (s.admin != nil && s.admin.disabled.Load())
@@ -139,7 +151,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   // The host must not arm refusal PCM if the personal doorbell receiver
   // would reject the follow-up DeepSeek request.
   healthy := !s.managementFault
-  speakerReady := s.speaker() != nil
+  speakerReady := s.speaker() != nil && !s.speakerNeedsAuth()
   modelReady := s.model.Load() != nil
   blocked := healthy && s.doorbell != nil && s.doorbell.check(r.Context())
   paused := s.routingPaused()
@@ -177,7 +189,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  }
  if r.URL.Path != "/v1/query" || r.Method != http.MethodPost { http.NotFound(w, r); return }
  model := s.model.Load()
- if model == nil || s.speaker() == nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
+ if model == nil || s.speaker() == nil || s.speakerNeedsAuth() { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
  var req request
  decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
  decoder.DisallowUnknownFields()
@@ -231,13 +243,27 @@ func (s *server) nativeSpeech(ctx context.Context,text string) error {
  box:=s.speaker()
  if box==nil{return errors.New("speaker unavailable")}
  err:=box.MiTTSContext(ctx,text)
- if err==nil||ctx.Err()!=nil||!strings.Contains(err.Error(),"HTTP 401;"){return err}
+ if err==nil {
+  s.updateSpeakerAuth(box,false)
+  return nil
+ }
+ if ctx.Err()!=nil||!strings.Contains(err.Error(),"HTTP 401;"){return err}
  if !s.authRefreshAt.IsZero()&&time.Since(s.authRefreshAt)<5*time.Minute{return err}
  s.authRefreshAt=time.Now()
  log.Print("MIOT_TTS_AUTH401_CACHED_PASS_REFRESH_ONCE")
- if refreshErr:=box.RefreshMIoTCachedSID(ctx);refreshErr!=nil{return refreshErr}
+ if refreshErr:=box.RefreshMIoTCachedSID(ctx);refreshErr!=nil{
+  if strings.Contains(refreshErr.Error(),"cached passToken rejected") ||
+     strings.Contains(refreshErr.Error(),"verified cached passToken required") {
+   s.updateSpeakerAuth(box,true)
+  }
+  return refreshErr
+ }
  if err:=ctx.Err();err!=nil{return err}
- return box.MiTTSContext(ctx,text)
+ err=box.MiTTSContext(ctx,text)
+ if ctx.Err()==nil && (err==nil || strings.Contains(err.Error(),"HTTP 401;")) {
+  s.updateSpeakerAuth(box,err!=nil)
+ }
+ return err
 }
 func (s *server) answer(ctx context.Context, generation uint64, req request, model *voiceanswer.Engine) {
  defer func(){
