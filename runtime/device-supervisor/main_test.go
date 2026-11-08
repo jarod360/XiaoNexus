@@ -247,7 +247,7 @@ func TestWaitForReceiverHonorsCancellation(t *testing.T) {
 }
 
 func TestVoiceUpdateModeAcceptsUnprefixedCheck(t *testing.T) {
- for utterance,want:=range map[string]string{"检查更新":"check","检查更新。":"check","小纽检查更新":"check","小纽立即升级":"apply","检查更新是什么":"","立即升级":""}{
+ for utterance,want:=range map[string]string{"检查更新":"check","检查更新。":"check","小纽检查更新":"check","小纽立即升级":"apply","检查更新是什么":"","立即升级":"apply","立即升级。":"apply","立即升级系统":""}{
   if got:=voiceUpdateMode(utterance);got!=want{t.Errorf("%q: got %q want %q",utterance,got,want)}
  }
 }

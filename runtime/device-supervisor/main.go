@@ -60,7 +60,7 @@ func canon(s string) string {
 func voiceUpdateMode(text string) string {
  switch canon(text) {
  case "检查更新","小纽检查更新":return "check"
- case "小纽立即升级":return "apply"
+ case "立即升级","小纽立即升级":return "apply"
  default:return ""
  }
 }

@@ -48,7 +48,7 @@ func (r adminRules) validate() error {
 		}
 	}
 	for _, prefix := range r.Direct {
-		if n := utf8.RuneCountInString(prefix); n < 3 || n > 24 ||
+		if n := utf8.RuneCountInString(prefix); n < 2 || n > 24 ||
 			strings.IndexFunc(prefix, func(r rune) bool {
 				return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r >= '\u4e00' && r <= '\u9fff')
 			}) >= 0 {

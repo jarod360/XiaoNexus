@@ -365,7 +365,7 @@
         try {
           var prefixes = JSON.parse(command.slice(7));
           if (Array.isArray(prefixes) && prefixes.length <= 12 && prefixes.every(function (v) {
-            return typeof v === 'string' && /^[A-Za-z0-9\u4e00-\u9fff]{3,24}$/.test(v);
+            return typeof v === 'string' && /^[A-Za-z0-9\u4e00-\u9fff]{2,24}$/.test(v);
           })) {
             directPrefixes = prefixes.map(function (v) { return v.toLowerCase(); });
             directUntil = Date.now() + 2500;
@@ -487,7 +487,7 @@
           var results = payload.getResults();
           if (!payload.isFinal() || !results || results.size() === 0) return accepted;
           var text = String(results.get(0).getText()).trim();
-          if (/^(检查更新|小纽检查更新|小纽立即升级)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
+          if (/^(检查更新|小纽检查更新|立即升级|小纽立即升级)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
           for (var i = 0; i < directPrefixes.length; i++) {
             var prefix = directPrefixes[i];
             var start = text.slice(0, prefix.length);
