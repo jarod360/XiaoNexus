@@ -470,6 +470,16 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
     if ev.value=="XIAONEXUS_RECOGNIZE_ACTIVITY"{lastActivity=time.Now();continue}
+    if command,ok:=strings.CutPrefix(ev.value,"XIAONEXUS_MANAGEMENT:");ok {
+     mode,id,ok:=strings.Cut(command,":")
+     if ok && enable && ready && !routingBlocked && validID.MatchString(id) {
+      switch mode {
+      case "check","apply","version":c.voiceUpdate(mode,id)
+      case "cleanup":if slots.trial=="" {c.voiceUpdate(mode,id)}
+      }
+     }
+     continue
+    }
     if id,ok:=strings.CutPrefix(ev.value,"XIAONEXUS_UPDATE_CONFIRM:");ok {
      if enable && ready && !routingBlocked && id==sentOffer && validID.MatchString(id) {
       c.voiceUpdate("confirm",id)
@@ -529,26 +539,21 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
    } else if ev.kind=="oem" {
     var status receiverStatus
     if ev.inst.kind=="asr" {lastActivity=time.Now()}
-    if ev.inst.kind=="asr" && ready && enable && !routingBlocked {
+    managementASR:=ev.inst.kind=="asr" && voiceUpdateMode(ev.inst.text)!=""
+    if ev.inst.kind=="asr" && !managementASR && ready && enable && !routingBlocked {
      current,ok:=c.status(ctx)
      if !ok||!current.routeReady(){blockNow()}else{status=current}
     }
     r.expansions=status.Rules.Expansions
     if ev.inst.kind=="asr" {log.Printf("XIAONEXUS_FINAL_ASR_SEEN dialog8=%s",ev.inst.id[:8])}
     a:=r.feed(ev.inst)
+    if managementASR{continue}
     if ev.inst.kind=="knowledge"&&r.previous!=nil&&r.previous.dialogID==ev.inst.id{
      log.Printf("XIAONEXUS_EXPAND_KNOWLEDGE_SAVED dialog8=%s",ev.inst.id[:8])
     }
     if a.kind==""||!ready||!enable{continue}
     if ev.inst.kind=="asr" {
      if canon(ev.inst.text)=="测试续听" {continue}
-     if mode:=voiceUpdateMode(ev.inst.text);mode!="" {
-      if mode=="cleanup" && (routingBlocked || slots.trial!="") {continue}
-      dialog:=""
-      if !routingBlocked {dialog=ev.inst.id}
-      c.voiceUpdate(mode,dialog)
-      continue
-     }
      if directQuery(ev.inst.text,status.Rules.Direct)!="" {
       log.Print("XIAONEXUS_DIRECT_PREFIX_SEEN")
       tryDirect(ev.inst.id)

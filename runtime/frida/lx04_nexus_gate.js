@@ -191,6 +191,8 @@
   var directClaims = new Map(), priorDirectInstruction = new Map();
   var followupProbe = null;
   var latestRecognize = null;
+  var updatePromptText = '发现新版本，是否更新？';
+  var nativePromptReady = false;
   function finishFollowupProbe(result) {
     if (!followupProbe) return;
     followupProbe = null;
@@ -214,36 +216,15 @@
     } catch (_) { finishFollowupProbe('UNAVAILABLE'); }
   }
   function playUpdatePrompt(probe) {
-    var track = null;
+    if (!nativePromptReady) { finishFollowupProbe('UNAVAILABLE'); return; }
     try {
-      var pcm = Java.use('android.util.Base64').decode(xiaonexusUpdatePrompt, 0);
-      track = Java.use('android.media.AudioTrack').$new(3, 16000, 4, 2, pcm.length, 0);
-      if (track.write(pcm, 0, pcm.length) !== pcm.length) throw Error('prompt write failed');
-      track.play();
-      var deadline = Date.now() + 5000;
-      function checkPlayback() {
-        Java.scheduleOnMainThread(function () {
-          var complete = false;
-          try {
-            complete = track.getPlaybackHeadPosition() >= pcm.length / 2;
-            if (!complete && followupProbe === probe && Date.now() < deadline) {
-              setTimeout(checkPlayback, 50);
-              return;
-            }
-          } catch (_) {
-            complete = false;
-          }
-          try { track.release(); } catch (_) {}
-          if (followupProbe !== probe) return;
-          if (complete) listenAfterPrompt(probe);
-          else finishFollowupProbe('UNAVAILABLE');
-        });
-      }
-      setTimeout(checkPlayback, 50);
-    } catch (_) {
-      if (track) { try { track.release(); } catch (_) {} }
-      finishFollowupProbe('UNAVAILABLE');
-    }
+      Java.use('com.xiaomi.micolauncher.common.speech.SpeechManager').getInstance()
+        .ttsRequest(updatePromptText, false, true);
+      note('UPDATE_NATIVE_PROMPT_REQUESTED');
+      setTimeout(function () {
+        if (followupProbe === probe && !probe.listening) finishFollowupProbe('UNAVAILABLE');
+      }, 8000);
+    } catch (_) { finishFollowupProbe('UNAVAILABLE'); }
   }
   function startFollowupProbe(id, update) {
     if (followupProbe) return;
@@ -559,6 +540,78 @@
       return f === null || !!Java.cast(f, Future).isDone();
     }
     var installed = [];
+    var promptHooks = [];
+    try {
+      var pcmPlayer = Java.use('com.xiaomi.micolauncher.common.player.TtsPcmPlayer');
+      var urlPlayer = Java.use('com.xiaomi.micolauncher.common.player.TtsUrlPlayer');
+      var AudioTrack = Java.use('android.media.AudioTrack');
+      var stopId = pcmPlayer.class.getDeclaredField('h'); stopId.setAccessible(true);
+      var playingId = pcmPlayer.class.getDeclaredField('g'); playingId.setAccessible(true);
+      var audioTrack = pcmPlayer.class.getDeclaredField('p'); audioTrack.setAccessible(true);
+      var writtenBytes = pcmPlayer.class.getDeclaredField('o'); writtenBytes.setAccessible(true);
+      var pcmDrain = pcmPlayer.h.overload();
+      var urlComplete = urlPlayer.onComplete.overload('com.xiaomi.micolauncher.common.player.base.BasePlayer');
+      function observePromptStart(player, textIndex) {
+        var play = player.requestPlay.overload('java.lang.String', 'java.lang.String');
+        play.implementation = function (first, second) {
+          var probe = followupProbe;
+          if (probe && probe.update && !probe.listening) {
+            if (String(textIndex === 0 ? first : second) === updatePromptText) {
+              probe.player = System.identityHashCode(this);
+            } else if (probe.player === System.identityHashCode(this)) {
+              finishFollowupProbe('CANCELLED');
+            }
+          }
+          return play.call(this, first, second);
+        };
+        promptHooks.push(play);
+      }
+      function promptFor(player) {
+        var probe = followupProbe;
+        return probe && probe.update && !probe.listening && probe.player === System.identityHashCode(player)
+          ? probe : null;
+      }
+      function afterNativePrompt(probe, delay) {
+        probe.player = null;
+        setTimeout(function () {
+          Java.scheduleOnMainThread(function () { listenAfterPrompt(probe); });
+        }, delay);
+      }
+      observePromptStart(pcmPlayer, 0);
+      observePromptStart(urlPlayer, 1);
+      pcmDrain.implementation = function () {
+        var probe = promptFor(this), delay = null;
+        try {
+          // The OEM stream stop drains queued audio. Estimate the tail from
+          // the frames written and already rendered before stop resets the head.
+          if (probe && String(stopId.getLong(this)) === String(playingId.getLong(this))) {
+            var output = audioTrack.get(this);
+            var bytes = writtenBytes.getInt(this);
+            var track = output ? Java.cast(output, AudioTrack) : null;
+            if (track && bytes > 0 && track.getPlayState() === 3 && track.getAudioFormat() === 2) {
+              var remaining = bytes / (2 * track.getChannelCount()) - track.getPlaybackHeadPosition();
+              delay = Math.ceil(Math.max(0, remaining) * 1000 / track.getSampleRate()) + 100;
+            }
+          }
+        } catch (_) {}
+        var result = pcmDrain.call(this);
+        if (delay !== null) afterNativePrompt(probe, delay);
+        return result;
+      };
+      promptHooks.push(pcmDrain);
+      urlComplete.implementation = function (player) {
+        var probe = promptFor(this);
+        var result = urlComplete.call(this, player);
+        if (probe) afterNativePrompt(probe, 0);
+        return result;
+      };
+      promptHooks.push(urlComplete);
+      Array.prototype.push.apply(installed, promptHooks);
+      nativePromptReady = true;
+    } catch (_) {
+      promptHooks.forEach(function (hook) { try { hook.implementation = null; } catch (_) {} });
+      note('UPDATE_NATIVE_PROMPT_HOOK_UNAVAILABLE');
+    }
     // The LX04 SDK checks this result after instruction ACK/tracking and
     // before both SDK audio and the OEM InstructionCapability dispatcher.
     try {
@@ -586,8 +639,10 @@
           var source = origins.get(id);
           var recognizedSource = source && source.name === 'SpeechRecognizer.Recognize';
           if (name !== 'SpeechRecognizer.RecognizeResult') {
-            if (recognizedSource && directHousekeeping[name] !== true) {
-              priorDirectInstruction.set(id, {when:Date.now()});
+            var audibleReply = name === 'SpeechSynthesizer.Speak' || name === 'System.UpgradeRom';
+            if ((recognizedSource && directHousekeeping[name] !== true) || audibleReply) {
+              var prior = priorDirectInstruction.get(id);
+              priorDirectInstruction.set(id, {when:Date.now(), audibleReply:audibleReply || !!(prior && prior.audibleReply)});
             }
             return accepted;
           }
@@ -611,19 +666,25 @@
               return accepted;
             }
           }
-          var managementCommand = followupTest || /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本|清理旧版本)$/.test(canonical);
+          var mode = /^(检查更新|小纽检查更新)$/.test(canonical) ? 'check'
+            : /^(立即升级|小纽立即升级)$/.test(canonical) ? 'apply'
+            : canonical === '当前版本' ? 'version'
+            : canonical === '清理旧版本' ? 'cleanup' : null;
+          var managementCommand = followupTest || mode;
           if (managementCommand) {
             var reason = null;
             if (!recognizedSource || Date.now() - source.when > 12000) reason = 'ORIGIN';
             else if (routingBlocked || !ready || gateDisabled || errors) reason = 'GATE';
             else if (Date.now() > directUntil) reason = 'LEASE';
+            else if (priorDirectInstruction.has(id) && priorDirectInstruction.get(id).audibleReply) reason = 'PRIOR_REPLY';
             if (reason) {
               note('MANAGEMENT_COMMAND_PASSED_' + reason + '_' + id.slice(0, 8));
               return accepted;
             }
             directClaims.set(id, {when:Date.now(), management:true, followupTest:followupTest,
-              check:/^(检查更新|小纽检查更新)$/.test(canonical)});
-            note('MANAGEMENT_COMMAND_CLAIMED');
+              check:mode === 'check'});
+            note('MANAGEMENT_COMMAND_CLAIMED_' + (mode || 'followup') + '_' + id.slice(0, 8));
+            if (mode) emitHostLine('XIAONEXUS_MANAGEMENT:' + mode + ':' + id);
             return accepted;
           }
           for (var i = 0; i < directPrefixes.length; i++) {
