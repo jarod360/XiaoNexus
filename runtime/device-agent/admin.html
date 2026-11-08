@@ -131,7 +131,16 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
   <label><input id="showPasswords" type="checkbox" style="display:inline;width:auto;margin:0 6px 12px 0">显示输入的密码</label>
   <button>保存新密码</button>
 </form></details></section>
-<section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button></section>
+<section id="updateCard"><h2>软件更新</h2><p id="installedVersion"></p><p id="updateState"></p><button id="checkUpdate">检查更新</button> <button id="stageUpdate">下载并校验</button> <button id="applyUpdate">空闲时安装</button>
+  <details id="oldUpdates">
+    <summary>清理旧版本</summary>
+    <p>新版日常使用确认正常后，可以删除旧安装包来释放空间。删除后，这些版本不能再从本机恢复。</p>
+    <p id="oldUpdateSize" role="status"></p>
+    <ul id="oldUpdateList"></ul>
+    <div class="actions"><button id="readOldUpdates" class="secondary">查看旧版本占用</button>
+    <button id="clearOldUpdates" disabled>清空列出的旧版本</button></div>
+  </details>
+</section>
 <section id="eventCard"><h2>最近管理事件</h2><pre id="events"></pre></section>
 </div><output id="notice" role="status"></output>
 </main>
@@ -154,6 +163,7 @@ function signedOut() {
   el('xiaomiPassword').value = '';
   el('xiaomiCode').value = '';
   clearTimeout(xiaomiTimer);
+  renderOldUpdates([]);
   modelLoaded = false;
   rulesLoaded = false;
   el("activeRules").open = false;
@@ -204,7 +214,7 @@ async function refresh(loadModel = false) {
 
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
-  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
+  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",old_updates_removed:"已清理旧版本",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
   el('events').textContent = (status.events || []).slice().reverse().map(event =>
     new Date(event.time).toLocaleString() + '  ' + labels[event.event]).join('\n');
 }
@@ -218,6 +228,7 @@ function action(control, handler) {
     finally {
       control.disabled = false;
       if (status && control.id === "routing") renderSetup();
+      if (control.id === "clearOldUpdates") control.disabled = !oldUpdateSlots.length;
     }
   };
 }
@@ -283,6 +294,31 @@ async function update(path) {
 el("checkUpdate").onclick = () => update("check").catch(error => el("notice").textContent = error.message);
 el("stageUpdate").onclick = () => update("stage").catch(error => el("notice").textContent = error.message);
 el("applyUpdate").onclick = () => update("apply").catch(error => el("notice").textContent = error.message);
+let oldUpdateSlots = [];
+function renderOldUpdates(slots) {
+  oldUpdateSlots = slots;
+  const total = slots.reduce((sum, slot) => sum + slot.bytes, 0);
+  const mib = bytes => (bytes / (1024 * 1024)).toFixed(1) + " MiB";
+  el("oldUpdateSize").textContent = slots.length ? "可清理约 " + mib(total) : "没有可清理的旧版本。";
+  el("oldUpdateList").replaceChildren(...slots.map(slot => {
+    const item = document.createElement("li");
+    item.textContent = slot.version + " · " + mib(slot.bytes);
+    return item;
+  }));
+  el("clearOldUpdates").disabled = !slots.length;
+}
+el("readOldUpdates").onclick = action(el("readOldUpdates"), async () => {
+  renderOldUpdates([]);
+  renderOldUpdates(await api("update/old-slots"));
+});
+el("clearOldUpdates").onclick = action(el("clearOldUpdates"), async () => {
+  const versions = oldUpdateSlots.map(slot => slot.version);
+  if (!versions.length || !confirm("确认当前版本日常使用正常，并删除以下旧版本？\n" + versions.join("、"))) return;
+  renderOldUpdates([]);
+  await api("update/old-slots", versions);
+  renderOldUpdates(await api("update/old-slots"));
+  el("notice").textContent = "旧版本已清理。";
+});
 function rules() {
   return Object.fromEntries(["refusals", "expansions", "direct"].map(key =>
     [key, el(key).value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)]));

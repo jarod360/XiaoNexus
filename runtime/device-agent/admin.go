@@ -348,6 +348,8 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(a.dir, "initial-password"))
 		a.event("password_changed")
 		w.WriteHeader(http.StatusNoContent)
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/admin/update/old-slots":
+		a.serveOldUpdateSlots(w, r)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/admin/update/"):
 		mode := strings.TrimPrefix(r.URL.Path, "/admin/update/")
 		if mode != "check" && mode != "stage" && mode != "apply" {

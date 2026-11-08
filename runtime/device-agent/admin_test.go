@@ -165,3 +165,64 @@ func TestOnlyLocalLX04MatchesBinding(t *testing.T) {
 		t.Fatal("MAC matching requires an available local identity")
 	}
 }
+
+func TestOldUpdateCleanupProtectsLiveAndReferencedSlots(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "updates")
+	t.Setenv("XIAONEXUS_SLOT_ROOT", root)
+	previous := installedVersion
+	installedVersion = "V52.0.1"
+	t.Cleanup(func() { installedVersion = previous })
+	for _, version := range []string{"V51.7.8", "V52.0.0", installedVersion, "V52.0.2", "unrelated"} {
+		slot := filepath.Join(root, version)
+		if err := os.MkdirAll(slot, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(slot, "VERSION"), []byte(version), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMarker := func(name, version string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, name), []byte(version+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMarker("active", installedVersion)
+	writeMarker("trial", installedVersion)
+	writeMarker("manual-previous", "V51.7.8")
+	a := &admin{dir: dir}
+	request := func(method, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		a.serveOldUpdateSlots(w, httptest.NewRequest(method, "/admin/update/old-slots", strings.NewReader(body)))
+		return w
+	}
+	got := request(http.MethodGet, "")
+	if got.Code != http.StatusOK || strings.TrimSpace(got.Body.String()) != `[{"version":"V52.0.0","bytes":7}]` {
+		t.Fatalf("unexpected preview: %d %s", got.Code, got.Body)
+	}
+	writeMarker("pending", "V52.0.2")
+	if got := request(http.MethodPost, `["V52.0.0"]`); got.Code != http.StatusConflict {
+		t.Fatalf("cleanup accepted while an upgrade was pending: %d", got.Code)
+	}
+	if err := os.Remove(filepath.Join(root, "pending")); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(http.MethodPost, `["V52.0.0","V52.0.1"]`); got.Code != http.StatusConflict {
+		t.Fatalf("cleanup accepted the active version: %d", got.Code)
+	}
+	if _, err := os.Stat(filepath.Join(root, "V52.0.0")); err != nil {
+		t.Fatal("rejected request removed a valid slot", err)
+	}
+	if got := request(http.MethodPost, `["V52.0.0"]`); got.Code != http.StatusNoContent {
+		t.Fatalf("cleanup failed: %d %s", got.Code, got.Body)
+	}
+	if _, err := os.Stat(filepath.Join(root, "V52.0.0")); !os.IsNotExist(err) {
+		t.Fatalf("old slot still exists: %v", err)
+	}
+	for _, name := range []string{"V51.7.8", installedVersion, "V52.0.2", "unrelated"} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Fatalf("protected directory %s lost: %v", name, err)
+		}
+	}
+}
