@@ -189,6 +189,47 @@
   var customRefusals = [];
   var directPrefixes = [], directUntil = 0;
   var directClaims = new Map(), priorDirectInstruction = new Map();
+  var followupProbe = null;
+  function finishFollowupProbe(result) {
+    if (!followupProbe) return;
+    followupProbe = null;
+    note('FOLLOWUP_PROBE_' + result);
+  }
+  function startFollowupProbe(id) {
+    if (followupProbe) return;
+    var probe = {source:id, reply:null, listening:false};
+    followupProbe = probe;
+    Java.scheduleOnMainThread(function () {
+      if (followupProbe !== probe) return;
+      var tone = null;
+      try {
+        tone = Java.use('android.media.ToneGenerator').$new(3, 60);
+        if (!tone.startTone(24, 180)) throw Error('tone unavailable');
+      } catch (_) {
+        if (tone) tone.release();
+        finishFollowupProbe('UNAVAILABLE');
+        return;
+      }
+      setTimeout(function () {
+       Java.scheduleOnMainThread(function () {
+        tone.release();
+        if (followupProbe !== probe || routingBlocked || Date.now() > directUntil) {
+          if (followupProbe === probe) finishFollowupProbe('CANCELLED');
+          return;
+        }
+        try {
+          var manager = Java.use('com.xiaomi.micolauncher.common.speech.SpeechManager').getInstance();
+          probe.listening = true;
+          manager.setWakeup();
+          note('FOLLOWUP_PROBE_LISTEN_REQUESTED');
+          setTimeout(function () {
+            if (followupProbe === probe) finishFollowupProbe('TIMEOUT');
+          }, 5000);
+        } catch (_) { finishFollowupProbe('UNAVAILABLE'); }
+       });
+      }, 500);
+    });
+  }
   var managementReplies = {
     // The OEM firmware action generates its own local speech outside this dialog.
     'System.UpgradeRom': true,
@@ -398,6 +439,7 @@
         return;
       }
       if (command === 'BLOCK') {
+        finishFollowupProbe('CANCELLED');
         nativeEnd(null,true,'BLOCKED');
         routingBlocked = true;
         directUntil = 0;
@@ -484,6 +526,10 @@
           var name = String(instruction.getFullName());
           var claim = directClaims.get(id);
           if (claim) {
+            if (claim.followupTest && name === 'Dialog.Finish') {
+              claim.followupTest = false;
+              startFollowupProbe(id);
+            }
             if (claim.management) return managementReplies[name] !== true;
             return directHousekeeping[name] === true;
           }
@@ -500,7 +546,16 @@
           if (!payload.isFinal() || !results || results.size() === 0) return accepted;
           var result = Java.cast(results.get(0), RecognizeResultItem);
           var text = String(result.getText()).trim();
-          var managementCommand = /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""));
+          var canonical = text.replace(/[\s\p{P}\p{S}]/gu, "");
+          var followupTest = canonical === '测试续听';
+          if (followupProbe && followupProbe.listening && followupProbe.reply === id) {
+            finishFollowupProbe(canonical === '测试完成' ? 'CONFIRMED' : 'OTHER_REPLY');
+            if (canonical === '测试完成' && recognizedSource && !routingBlocked) {
+              directClaims.set(id, {when:Date.now(), management:true});
+              return accepted;
+            }
+          }
+          var managementCommand = followupTest || /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(canonical);
           if (managementCommand) {
             var reason = null;
             if (!recognizedSource || Date.now() - source.when > 12000) reason = 'ORIGIN';
@@ -510,7 +565,7 @@
               note('MANAGEMENT_COMMAND_PASSED_' + reason + '_' + id.slice(0, 8));
               return accepted;
             }
-            directClaims.set(id, {when:Date.now(), management:true});
+            directClaims.set(id, {when:Date.now(), management:true, followupTest:followupTest});
             note('MANAGEMENT_COMMAND_CLAIMED');
             return accepted;
           }
@@ -555,6 +610,10 @@
           if (name === 'SpeechRecognizer.Recognize') {
             stats.recognizeEvents++;
             if (id) emitHostLine('XIAONEXUS_RECOGNIZE_ACTIVITY');
+            if (id && followupProbe && id !== followupProbe.source && id !== followupProbe.reply) {
+              if (!followupProbe.listening || followupProbe.reply) finishFollowupProbe('CANCELLED');
+              else followupProbe.reply = id;
+            }
           }
           if (id) {
             if (name === 'SpeechRecognizer.Recognize') stats.recognizeValidIds++;

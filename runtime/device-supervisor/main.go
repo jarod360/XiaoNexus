@@ -528,6 +528,7 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     }
     if a.kind==""||!ready||!enable{continue}
     if ev.inst.kind=="asr" {
+     if canon(ev.inst.text)=="测试续听" {continue}
      if mode:=voiceUpdateMode(ev.inst.text);mode!="" {
       c.voiceUpdate(mode)
       continue
