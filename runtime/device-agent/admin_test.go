@@ -211,6 +211,9 @@ func TestOldUpdateCleanupProtectsLiveAndReferencedSlots(t *testing.T) {
 	if got := request(http.MethodPost, `["V52.0.0"]`); got.Code != http.StatusConflict {
 		t.Fatalf("cleanup accepted while an upgrade was pending: %d", got.Code)
 	}
+	if got := a.clearOldUpdateSlotsByVoice(); got != "请等升级和试运行完成后再清理。" {
+		t.Fatalf("unexpected voice cleanup result during pending upgrade: %q", got)
+	}
 	if err := os.Remove(filepath.Join(root, "pending")); err != nil {
 		t.Fatal(err)
 	}
@@ -222,6 +225,12 @@ func TestOldUpdateCleanupProtectsLiveAndReferencedSlots(t *testing.T) {
 	}
 	if got := request(http.MethodPost, `["V52.0.0"]`); got.Code != http.StatusNoContent {
 		t.Fatalf("cleanup failed: %d %s", got.Code, got.Body)
+	}
+	if err := os.Mkdir(filepath.Join(root, "V52.0.0"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.clearOldUpdateSlotsByVoice(); got != "已清理1个旧版本。" {
+		t.Fatalf("unexpected voice cleanup result: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(root, "V52.0.0")); !os.IsNotExist(err) {
 		t.Fatalf("old slot still exists: %v", err)

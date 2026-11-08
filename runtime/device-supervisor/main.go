@@ -62,6 +62,7 @@ func voiceUpdateMode(text string) string {
  case "检查更新","小纽检查更新":return "check"
  case "立即升级","小纽立即升级":return "apply"
  case "当前版本":return "version"
+ case "清理旧版本":return "cleanup"
  default:return ""
  }
 }
@@ -542,6 +543,7 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     if ev.inst.kind=="asr" {
      if canon(ev.inst.text)=="测试续听" {continue}
      if mode:=voiceUpdateMode(ev.inst.text);mode!="" {
+      if mode=="cleanup" && (routingBlocked || slots.trial!="") {continue}
       dialog:=""
       if !routingBlocked {dialog=ev.inst.id}
       c.voiceUpdate(mode,dialog)

@@ -563,7 +563,7 @@ test('direct prefix passes OEM instructions when origin, freshness or owner is u
   }
 });
 test('management voice commands block only their own OEM replies',()=>{
-  for(const [prefixes,utterance] of [[['检查'],'检查更新。'],[['立即'],'立即升级。'],[['小纽'],'小纽立即升级。'],[[],'当前版本。']]){
+  for(const [prefixes,utterance] of [[['检查'],'检查更新。'],[['立即'],'立即升级。'],[['小纽'],'小纽立即升级。'],[[],'当前版本。'],[['清理'],'清理旧版本。']]){
     const t=setup(),id=t.id('a'),other=t.id('b');
     t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify(prefixes));
     t.event('SpeechRecognizer.Recognize',id);
