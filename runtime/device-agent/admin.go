@@ -42,20 +42,23 @@ type adminEvent struct {
 }
 
 type admin struct {
-	mu         sync.Mutex
-	dir        string
-	credential adminCredential
-	session    string
-	expires    time.Time
-	nextLogin  time.Time
-	disabled   atomic.Bool
-	rules      atomic.Pointer[adminRules]
-	eventMu    sync.Mutex
-	events     []adminEvent
-	update     adminUpdateStatus
-	stop       func()
-	model      adminModel
-	applyModel func(adminModel, bool)
+	mu                         sync.Mutex
+	dir                        string
+	credential                 adminCredential
+	session                    string
+	expires                    time.Time
+	nextLogin                  time.Time
+	disabled                   atomic.Bool
+	rules                      atomic.Pointer[adminRules]
+	eventMu                    sync.Mutex
+	events                     []adminEvent
+	update                     adminUpdateStatus
+	stop                       func()
+	model                      adminModel
+	applyModel                 func(adminModel, bool)
+	xiaomi                     *xiaomiSetup
+	testedModel, testedSpeaker string
+	testedSpeakerBox           speechBox
 }
 
 func newAdmin(dir string, stop func()) (*admin, error) {
@@ -63,7 +66,16 @@ func newAdmin(dir string, stop func()) (*admin, error) {
 	file := filepath.Join(dir, "admin-password.json")
 	data, err := os.ReadFile(file)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := a.setPassword(defaultAdminPassword, true); err != nil {
+		password := defaultAdminPassword
+		if initial, readErr := os.ReadFile(filepath.Join(dir, "initial-password")); readErr == nil {
+			password = strings.TrimSpace(string(initial))
+			if len(password) < 20 || len(password) > 128 {
+				return nil, errors.New("invalid initial password file")
+			}
+		} else if !errors.Is(readErr, os.ErrNotExist) {
+			return nil, readErr
+		}
+		if err := a.setPassword(password, true); err != nil {
 			return nil, err
 		}
 	} else if err != nil {
@@ -81,6 +93,9 @@ func newAdmin(dir string, stop func()) (*admin, error) {
 	case string(data) == "true":
 	default:
 		return nil, errors.New("invalid admin routing state")
+	}
+	if a.setupPending() {
+		a.disabled.Store(true)
 	}
 	if err := a.loadRules(); err != nil {
 		log.Print("management rules invalid; using built-in rules")
@@ -207,13 +222,23 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(adminPage)
 		return
 	}
-	if r.Method == http.MethodPost && (r.Header.Get("Origin") != "http://"+r.Host || r.Header.Get("Content-Type") != "application/json") {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if r.Method == http.MethodPost && (r.Header.Get("Origin") != scheme+"://"+r.Host || r.Header.Get("Content-Type") != "application/json") {
 		http.Error(w, "invalid origin or content type", http.StatusForbidden)
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if r.Method == http.MethodPost && r.URL.Path == "/admin/login" {
+		if a.credential.Initial && !protectedAdmin(r) {
+			if _, err := os.Stat(filepath.Join(a.dir, "initial-password")); err == nil {
+				http.Error(w, "请使用安装器提供的安全配置入口。", http.StatusForbidden)
+				return
+			}
+		}
 		if time.Now().Before(a.nextLogin) {
 			http.Error(w, "try again shortly", http.StatusTooManyRequests)
 			return
@@ -233,9 +258,11 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "login failed", 500)
 			return
 		}
+		a.xiaomi.cancel(a.session)
+		a.testedModel, a.testedSpeaker = "", ""
 		a.session = hex.EncodeToString(secret)
 		a.expires = time.Now().Add(2 * time.Hour)
-		http.SetCookie(w, &http.Cookie{Name: adminCookie, Value: a.session, Path: "/admin/", Expires: a.expires, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: adminCookie, Value: a.session, Path: "/admin/", Expires: a.expires, HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode})
 		a.event("login")
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -253,14 +280,25 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			update.State = "pending"
 		}
 		_ = json.NewEncoder(w).Encode(struct {
-			Version string            `json:"version"`
-			Initial bool              `json:"initial"`
-			Enabled bool              `json:"enabled"`
-			Events  []adminEvent      `json:"events"`
-			Rules   *adminRules       `json:"rules"`
-			Update  adminUpdateStatus `json:"update"`
-			Model   adminModelStatus  `json:"model"`
-		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update, a.model.status()})
+			Version       string            `json:"version"`
+			Initial       bool              `json:"initial"`
+			Enabled       bool              `json:"enabled"`
+			Events        []adminEvent      `json:"events"`
+			Rules         *adminRules       `json:"rules"`
+			Update        adminUpdateStatus `json:"update"`
+			Model         adminModelStatus  `json:"model"`
+			Xiaomi        xiaomiStatus      `json:"xiaomi"`
+			Protected     bool              `json:"protected"`
+			Setup         bool              `json:"setup"`
+			ModelTested   bool              `json:"modelTested"`
+			SpeakerTested bool              `json:"speakerTested"`
+		}{installedVersion, a.credential.Initial, !a.disabled.Load(), a.recentEvents(), a.rules.Load(), update, a.model.status(), a.xiaomi.status(a.session), protectedAdmin(r), a.setupPending(), a.testedModel == a.session, a.speakerTested()})
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/admin/xiaomi/"):
+		a.serveXiaomi(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/speaker/test":
+		a.testSpeaker(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/model/test":
+		a.testModel(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/model":
 		a.saveModel(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/password":
@@ -307,6 +345,7 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "save failed", 500)
 			return
 		}
+		_ = os.Remove(filepath.Join(a.dir, "initial-password"))
 		a.event("password_changed")
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/admin/update/"):
@@ -325,6 +364,7 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/logout":
+		a.xiaomi.cancel(a.session)
 		a.session = ""
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && r.URL.Path == "/admin/rules/test":
@@ -378,6 +418,13 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid routing state", 400)
 			return
 		}
+		if *enabled && a.setupPending() {
+			if !protectedAdmin(r) || a.xiaomi == nil || a.xiaomi.server.speaker() == nil || a.model.Key == "" ||
+				!a.speakerTested() || a.testedModel != a.session {
+				http.Error(w, "请先测试模型连接和音箱播报。", http.StatusConflict)
+				return
+			}
+		}
 		value := "true"
 		if !*enabled {
 			value = "false"
@@ -385,6 +432,12 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 		if err := saveAdminFile(a.dir, "admin-routing.json", []byte(value)); err != nil {
 			http.Error(w, "save failed", 500)
 			return
+		}
+		if *enabled && a.setupPending() {
+			if err := os.Remove(filepath.Join(a.dir, "setup-pending")); err != nil {
+				http.Error(w, "首次配置状态保存失败。", http.StatusInternalServerError)
+				return
+			}
 		}
 		a.disabled.Store(!*enabled)
 		if *enabled {
@@ -472,6 +525,10 @@ func (a *admin) saveModel(w http.ResponseWriter, r *http.Request) {
 	model.Endpoint = strings.TrimSpace(model.Endpoint)
 	model.Name = strings.TrimSpace(model.Name)
 	model.Key = strings.TrimSpace(model.Key)
+	if model.Key != "" && !protectedAdmin(r) {
+		http.Error(w, "请通过安全配置入口填写新密钥。", http.StatusForbidden)
+		return
+	}
 	if model.Key == "" && model.Endpoint == a.model.Endpoint {
 		model.Key = a.model.Key
 	}
@@ -485,6 +542,7 @@ func (a *admin) saveModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.model = model
+	a.testedModel = ""
 	a.applyModel(model, false)
 	a.event("model_saved")
 	w.WriteHeader(http.StatusNoContent)

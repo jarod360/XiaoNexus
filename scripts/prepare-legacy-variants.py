@@ -59,7 +59,7 @@ def main() -> None:
 
     nexus = DEST / "client" / "cmd" / "xiaonexus-agent"
     nexus.mkdir(parents=True, exist_ok=True)
-    for filename in ("main.go", "main_test.go", "admin.go", "admin.html", "admin_test.go", "admin_rules.go", "update.go", "update_verify.go", "update_verify_test.go"):
+    for filename in ("main.go", "main_test.go", "admin.go", "admin.html", "admin_test.go", "admin_rules.go", "admin_xiaomi.go", "update.go", "update_verify.go", "update_verify_test.go"):
         shutil.copy2(ROOT / "runtime" / "device-agent" / filename, nexus / filename)
     # Guard source remains from the pinned XiaoSeek version, not a rewritten implementation.
     shutil.copy2(agent / "doorbell.go", nexus / "doorbell.go")

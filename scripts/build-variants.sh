@@ -1,9 +1,9 @@
 #!/bin/sh
-# Build-only V51.x candidate bundles. No ADB or device changes.
+# Build-only LX04 candidate bundles. No ADB or device changes.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=$(tr -d '\r\n' < "$ROOT/VERSION")
-case "$VERSION" in V51.*) ;; *) echo 'Only V51.x test builds are allowed before V52 stable' >&2; exit 1 ;; esac
+case "$VERSION" in V51.*|V52.0.0) ;; *) echo 'Expected V51.x or the V52.0 RC build identifier' >&2; exit 1 ;; esac
 python3 "$ROOT/scripts/prepare-legacy-variants.py"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
