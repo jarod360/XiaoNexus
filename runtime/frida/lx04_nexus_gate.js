@@ -464,6 +464,7 @@
     try {
       var classifyInstruction = E.a.overload('com.xiaomi.ai.api.common.Instruction');
       var RecognizeResult = Java.use('com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult');
+      var RecognizeResultItem = Java.use('com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem');
       classifyInstruction.implementation = function (instruction) {
         var accepted = classifyInstruction.call(this, instruction);
         if (!accepted || (!directPrefixes.length && directClaims.size === 0)) return accepted;
@@ -486,7 +487,8 @@
           var payload = Java.cast(instruction.getPayload(), RecognizeResult);
           var results = payload.getResults();
           if (!payload.isFinal() || !results || results.size() === 0) return accepted;
-          var text = String(results.get(0).getText()).trim();
+          var result = Java.cast(results.get(0), RecognizeResultItem);
+          var text = String(result.getText()).trim();
           if (/^(检查更新|小纽检查更新|立即升级|小纽立即升级)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
           for (var i = 0; i < directPrefixes.length; i++) {
             var prefix = directPrefixes[i];
