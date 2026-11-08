@@ -551,13 +551,28 @@ test('direct prefix passes OEM instructions when origin, freshness or owner is u
     assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
   }
 });
-test('reserved voice update command is never claimed by an overlapping direct prefix',()=>{
-  for(const [prefix,utterance] of [['检查','检查更新。'],['立即','立即升级。'],['小纽','小纽立即升级。'],['当前','当前版本。']]){
-    const t=setup(),id=t.id('a');
-    t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify([prefix]));
+test('management voice commands block only their own OEM replies',()=>{
+  for(const [prefixes,utterance] of [[['检查'],'检查更新。'],[['立即'],'立即升级。'],[['小纽'],'小纽立即升级。'],[[],'当前版本。']]){
+    const t=setup(),id=t.id('a'),other=t.id('b');
+    t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify(prefixes));
     t.event('SpeechRecognizer.Recognize',id);
     assert(t.instruction(id,'SpeechRecognizer.RecognizeResult',utterance));
+    assert.equal(t.instruction(id,'SpeechSynthesizer.Speak'),false);
+    assert.equal(t.instruction(id,'Template.Toast'),false);
+    assert(t.instruction(id,'Dialog.Finish'));
+    assert(t.instruction(other,'SpeechSynthesizer.Speak'));
     assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
+  }
+});
+test('management voice commands leave OEM replies alone without an active gate',()=>{
+  for(const reason of ['blocked','expired','unknown']){
+    const t=setup(),id=t.id('a');
+    t.rpc.exports.onFridaStdin('DIRECT []');
+    if(reason!=='unknown') t.event('SpeechRecognizer.Recognize',id);
+    if(reason==='blocked') t.rpc.exports.onFridaStdin('BLOCK');
+    if(reason==='expired') t.advance(2600);
+    assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','当前版本'));
+    assert(t.instruction(id,'SpeechSynthesizer.Speak'));
   }
 });
 console.log('RESULT',passed,'tests PASS');
