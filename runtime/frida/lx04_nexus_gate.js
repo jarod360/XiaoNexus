@@ -467,7 +467,7 @@
       var RecognizeResultItem = Java.use('com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem');
       classifyInstruction.implementation = function (instruction) {
         var accepted = classifyInstruction.call(this, instruction);
-        if (!accepted || (!directPrefixes.length && directClaims.size === 0)) return accepted;
+        if (!accepted || (!directPrefixes.length && directUntil === 0 && directClaims.size === 0)) return accepted;
         try {
           var id = dialogId(instruction);
           if (!id) return accepted;
@@ -483,13 +483,21 @@
             }
             return accepted;
           }
-          if (!directPrefixes.length) return accepted;
           var payload = Java.cast(instruction.getPayload(), RecognizeResult);
           var results = payload.getResults();
           if (!payload.isFinal() || !results || results.size() === 0) return accepted;
           var result = Java.cast(results.get(0), RecognizeResultItem);
           var text = String(result.getText()).trim();
-          if (/^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
+          var managementCommand = /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""));
+          if (managementCommand) {
+            if (!recognizedSource || Date.now() - source.when > 12000 || priorDirectInstruction.has(id) ||
+                routingBlocked || !ready || Date.now() > directUntil || gateDisabled || errors || pending || countOwners() !== 0) {
+              return accepted;
+            }
+            directClaims.set(id, {when:Date.now()});
+            note('MANAGEMENT_COMMAND_CLAIMED');
+            return accepted;
+          }
           for (var i = 0; i < directPrefixes.length; i++) {
             var prefix = directPrefixes[i];
             var start = text.slice(0, prefix.length);

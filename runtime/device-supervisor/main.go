@@ -397,8 +397,10 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
   if wasTrial && slots.trial==""{log.Print("XIAONEXUS_UPDATE_TRIAL_COMMITTED")}
   if slots.trial!=""||!status.routeReady(){setRoutingBlocked(true);return status,nil}
   setRoutingBlocked(false)
-  if !status.AgentBusy && len(status.Rules.Direct)>0 {
-   prefixes,_:=json.Marshal(status.Rules.Direct)
+  if !status.AgentBusy {
+   rules:=status.Rules.Direct
+   if rules==nil{rules=[]string{}}
+   prefixes,_:=json.Marshal(rules)
    _,_=io.WriteString(stdin,"DIRECT "+string(prefixes)+"\n")
    sentDirect=true
   } else if sentDirect {

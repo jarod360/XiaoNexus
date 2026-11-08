@@ -152,8 +152,20 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   }
   s.admin.mu.Lock()
   accepted:=s.admin.startUpdate(mode, s.announceUpdate)
+  busy:=s.admin.update.Busy
+  pending:=s.admin.updatePending()
   s.admin.mu.Unlock()
-  if !accepted{http.Error(w,"update unavailable",409);return}
+  if !accepted{
+   message:="暂时无法更新，请稍后再试。"
+   if pending {
+    message="更新已准备好，正在等待音箱空闲。请勿断电。"
+   } else if busy {
+    message="正在处理更新，请稍候。"
+   }
+   go s.announceUpdate(message)
+   http.Error(w,"update unavailable",409)
+   return
+  }
   w.WriteHeader(http.StatusNoContent)
   return
  }
