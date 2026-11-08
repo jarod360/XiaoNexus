@@ -9,9 +9,9 @@ const path = require('path');
 const scriptText = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'frida', 'lx04_nexus_gate.js'), 'utf8');
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('PASS', name); }
-function setup(unblock = true) {
+function setup(unblock = true, useURLPrompt = false) {
   let now = 100000;
-  let promptFrames = 0;
+  let promptRequests = 0;
   let currentThread = 100;
   let identity = 1;
   let cardShows = 0, cardCalls = 0, latencyCalls = 0, hides = 0, dismissRequests=0;
@@ -46,6 +46,14 @@ function setup(unblock = true) {
     else hides++;
   };
   function invoke(method, that, ...args){return (method.implementation||function(...a){return method.call(this,...a)}).apply(that,args);}
+  const pcmPlay = overload('pcmPlay', function(){});
+  const pcmDrain = overload('pcmDrain', function(){});
+  const urlPlay = overload('urlPlay', function(){});
+  const urlComplete = overload('urlComplete', function(){});
+  const promptPlayer = {hash:999,g:{value:1},h:{value:1},o:{value:32000},p:{value:{
+    getPlayState:()=>3,getAudioFormat:()=>2,getChannelCount:()=>1,
+    getPlaybackHeadPosition:()=>14400,getSampleRate:()=>16000
+  }}};
   const methods = {
     'com.xiaomi.ai.android.core.e':{a:{overload:type=>type.endsWith('.Event')?reg:classify}},
     'com.xiaomi.ai.android.core.f':{f:{overload:()=>speak}},
@@ -58,11 +66,22 @@ function setup(unblock = true) {
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult':{},
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem':{},
     'android.media.ToneGenerator':{$new:()=>({startTone:()=>true,release(){}})},
-    'android.util.Base64':{decode:()=>new Uint8Array(32000)},
-    'android.media.AudioTrack':{$new:()=>({
-      write:pcm=>pcm.length, play(){}, release(){}, getPlaybackHeadPosition:()=>promptFrames
+    'android.media.AudioTrack':{},
+    'com.xiaomi.micolauncher.common.player.TtsPcmPlayer':{
+      requestPlay:{overload:()=>pcmPlay},h:{overload:()=>pcmDrain},
+      class:{getDeclaredField:name=>({
+        setAccessible(){},get:player=>player[name].value,
+        getInt:player=>player[name].value,getLong:player=>player[name].value
+      })}
+    },
+    'com.xiaomi.micolauncher.common.player.TtsUrlPlayer':{requestPlay:{overload:()=>urlPlay},onComplete:{overload:()=>urlComplete}},
+    'com.xiaomi.micolauncher.common.speech.SpeechManager':{getInstance:()=>({
+      setWakeup(){},ttsRequest(text){
+        promptRequests++;
+        if (useURLPrompt) invoke(urlPlay,promptPlayer,'https://example.invalid/prompt',text);
+        else invoke(pcmPlay,promptPlayer,text,'');
+      }
     })},
-    'com.xiaomi.micolauncher.common.speech.SpeechManager':{getInstance:()=>({setWakeup(){}})},
     'java.lang.System':{identityHashCode:(task)=>task.hash},
     'java.lang.Thread':{currentThread:()=>({getId:()=>currentThread})},
     'java.util.concurrent.Future':{},
@@ -79,7 +98,6 @@ function setup(unblock = true) {
     return obj;
   }
   const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
-  sandbox.xiaonexusUpdatePrompt = 'fixture';
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
   sandbox.Java.scheduleOnMainThread=cb=>cb();
   if (unblock) rpc.exports.onFridaStdin('UNBLOCK');
@@ -106,13 +124,14 @@ function setup(unblock = true) {
   function status(){return rpc.exports.status()}
   function advance(ms){now+=ms;for(const [id,t] of [...timers]){if(t.due<=now){timers.delete(id);t.fn()}}}
   return {id,event,instruction,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,
-    endPrompt:()=>{promptFrames=16000},rpc,messages,controlMessages,
+    endPrompt:()=>useURLPrompt?invoke(urlComplete,promptPlayer,null):invoke(pcmDrain,promptPlayer),
+    promptRequests:()=>promptRequests,rpc,messages,controlMessages,
     counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
 }
 const REF='这可把我难住了，看来要更努力学习了';
 function orig(t,id,text){t.event('SpeechRecognizer.Recognize',id);t.event('System.Ack',id);t.speakEvent(id,text)}
 function native(t,id,text){t.event('SpeechSynthesizer.Synthesize',id);t.speakEvent(id,text)}
-test('default hooks start BLOCKED until supervisor confirms route readiness',()=>{let t=setup(false),s=t.status();assert(s.ready);assert(s.routingBlocked);assert(!s.armed);assert.equal(t.rpc.exports.armone(),false);assert(s.uiSupported);assert(s.notes[0].includes('hooks=8'))});
+test('default hooks start BLOCKED until supervisor confirms route readiness',()=>{let t=setup(false),s=t.status();assert(s.ready);assert(s.routingBlocked);assert(!s.armed);assert.equal(t.rpc.exports.armone(),false);assert(s.uiSupported);assert(s.notes[0].includes('hooks=12'))});
 test('BLOCK releases an active PCM owner to pass-through and UNBLOCK resumes routing',()=>{
  let t=setup(),id=t.id('b');
  assert(t.rpc.exports.armboth());
@@ -591,6 +610,7 @@ test('management voice commands leave OEM replies alone without an active gate',
     if(reason==='expired') t.advance(2600);
     assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','当前版本'));
     assert(t.instruction(id,'SpeechSynthesizer.Speak'));
+    assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_MANAGEMENT:')));
   }
 });
 test('follow-up probe waits for the tone and accepts one recognized confirmation',()=>{
@@ -608,7 +628,20 @@ test('follow-up probe waits for the tone and accepts one recognized confirmation
   t.advance(5000);
   assert(!t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_TIMEOUT')));
 });
-test('update confirmation listens after local playback and consumes only one reply',()=>{
+test('management dispatch happens once per claim and skips dialogs that already replied',()=>{
+  const t=setup(),early=t.id('a'),claimed=t.id('b');
+  t.rpc.exports.onFridaStdin('DIRECT []');
+  t.event('SpeechRecognizer.Recognize',early);
+  assert(t.instruction(early,'SpeechSynthesizer.Speak'));
+  assert(t.instruction(early,'SpeechRecognizer.RecognizeResult','当前版本'));
+  assert(t.instruction(early,'SpeechSynthesizer.Speak'));
+  t.event('SpeechRecognizer.Recognize',claimed);
+  t.instruction(claimed,'SpeechRecognizer.RecognizeResult','检查更新');
+  t.instruction(claimed,'SpeechRecognizer.RecognizeResult','检查更新');
+  assert.deepStrictEqual(t.controlMessages.map(m=>m[1]).filter(s=>s.startsWith('XIAONEXUS_MANAGEMENT:')),
+    ['XIAONEXUS_MANAGEMENT:check:'+claimed+'\n']);
+});
+test('update confirmation listens after native playback drains and consumes only one reply',()=>{
   for (const [reply,expected] of [['更新',true],['立即更新',true],['取消',false],['天气',false]]) {
     const t=setup(),source=t.id('a'),answer=t.id('b');
     t.rpc.exports.onFridaStdin('DIRECT []');
@@ -617,9 +650,12 @@ test('update confirmation listens after local playback and consumes only one rep
     t.rpc.exports.onFridaStdin('UPDATE_OFFER '+source);
     t.instruction(source,'Dialog.Finish');
     t.advance(50);
+    assert.equal(t.promptRequests(),1);
     assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
     t.endPrompt();
-    t.advance(50);
+    t.advance(199);
+    assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+    t.advance(1);
     assert(t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
     t.event('SpeechRecognizer.Recognize',answer);
     t.instruction(answer,'SpeechRecognizer.RecognizeResult',reply);
@@ -643,5 +679,20 @@ test('a cancelled update offer cannot restart listening if delivered twice',()=>
   t.endPrompt();
   t.advance(50);
   assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+});
+test('native URL playback must complete for the update offer to start listening',()=>{
+  for (const completed of [true,false]) {
+    const t=setup(true,true),source=t.id('a');
+    t.rpc.exports.onFridaStdin('DIRECT []');
+    t.event('SpeechRecognizer.Recognize',source);
+    t.instruction(source,'SpeechRecognizer.RecognizeResult','检查更新');
+    t.instruction(source,'Dialog.Finish');
+    t.rpc.exports.onFridaStdin('UPDATE_OFFER '+source);
+    assert.equal(t.promptRequests(),1);
+    assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+    if (completed) t.endPrompt();
+    t.advance(completed?0:8000);
+    assert(t.controlMessages.some(m=>m[1].includes(completed?'LISTEN_REQUESTED':'PROBE_UNAVAILABLE')));
+  }
 });
 console.log('RESULT',passed,'tests PASS');
