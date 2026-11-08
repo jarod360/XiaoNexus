@@ -55,6 +55,7 @@ function setup(unblock = true) {
     'com.xiaomi.ai.android.impl.a$d':{$init:{overload:()=>init},a:{overload:(...args)=>args.length===0?cancel:pcm},run:{overload:()=>run}},
     'com.xiaomi.ai.api.SpeechSynthesizer$Speak':{},
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult':{},
+    'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem':{},
     'java.lang.System':{identityHashCode:(task)=>task.hash},
     'java.lang.Thread':{currentThread:()=>({getId:()=>currentThread})},
     'java.util.concurrent.Future':{},
@@ -64,7 +65,13 @@ function setup(unblock = true) {
   const rpc = {exports:{}};
   const messages = [];
   const controlMessages = [];
-  const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast:obj=>obj,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
+  function cast(obj, type) {
+    if (type === methods['com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem']) {
+      return {getText:()=>obj.text};
+    }
+    return obj;
+  }
+  const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
   if (unblock) rpc.exports.onFridaStdin('UNBLOCK');
   const id = ch => ch.repeat(32);
@@ -73,7 +80,7 @@ function setup(unblock = true) {
   function instruction(dialog,name,text='',final=true){
     const item=makeSpeak(dialog,text);
     item.getFullName=()=>name;
-    item.getPayload=()=>({isFinal:()=>final,getResults:()=>({size:()=>1,get:()=>({getText:()=>text})})});
+    item.getPayload=()=>({isFinal:()=>final,getResults:()=>({size:()=>1,get:()=>({text})})});
     return invoke(classify,{},item);
   }
   function speakEvent(dialog,text){return invoke(speak,{},makeSpeak(dialog,text));}
