@@ -627,4 +627,21 @@ test('update confirmation listens after local playback and consumes only one rep
     assert.equal(t.controlMessages.filter(m=>m[1]==='XIAONEXUS_UPDATE_CONFIRM:'+source+'\n').length,Number(expected));
   }
 });
+test('a cancelled update offer cannot restart listening if delivered twice',()=>{
+  const t=setup(),source=t.id('a');
+  t.rpc.exports.onFridaStdin('DIRECT []');
+  t.event('SpeechRecognizer.Recognize',source);
+  t.instruction(source,'SpeechRecognizer.RecognizeResult','检查更新');
+  t.instruction(source,'Dialog.Finish');
+  const offer='UPDATE_OFFER '+source;
+  t.rpc.exports.onFridaStdin(offer);
+  t.rpc.exports.onFridaStdin('BLOCK');
+  t.advance(50);
+  t.rpc.exports.onFridaStdin('UNBLOCK');
+  t.rpc.exports.onFridaStdin('DIRECT []');
+  t.rpc.exports.onFridaStdin(offer);
+  t.endPrompt();
+  t.advance(50);
+  assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+});
 console.log('RESULT',passed,'tests PASS');
