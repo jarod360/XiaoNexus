@@ -556,7 +556,11 @@ test('management voice commands block only their own OEM replies',()=>{
     const t=setup(),id=t.id('a'),other=t.id('b');
     t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify(prefixes));
     t.event('SpeechRecognizer.Recognize',id);
+    assert(t.instruction(id,'SpeechRecognizer.VoiceprintRecognizeResult'));
+    assert(t.instruction(id,'SpeechRecognizer.RecognizeResult',utterance,false));
+    assert(t.instruction(id,'SpeechRecognizer.StopCapture'));
     assert(t.instruction(id,'SpeechRecognizer.RecognizeResult',utterance));
+    assert.equal(t.instruction(id,'Nlp.StartAnswer'),false);
     assert.equal(t.instruction(id,'SpeechSynthesizer.Speak'),false);
     assert.equal(t.instruction(id,'Template.Toast'),false);
     assert(t.instruction(id,'Dialog.Finish'));
