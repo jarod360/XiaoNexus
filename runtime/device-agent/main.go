@@ -138,8 +138,18 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  if !s.authorized(r) { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
  if r.URL.Path == "/v1/update/voice" && r.Method == http.MethodPost && s.admin != nil {
   var mode string
-  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply"){http.Error(w,"invalid update request",400);return}
+  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply" && mode!="version"){http.Error(w,"invalid update request",400);return}
   if s.doorbell!=nil && s.doorbell.check(r.Context()){http.Error(w,"doorbell prioritized",503);return}
+  if mode=="version" {
+   message := "无法读取当前版本。"
+   if releaseVersion.MatchString(installedVersion) {
+    spokenVersion := strings.ReplaceAll(strings.TrimPrefix(installedVersion, "V"), ".", "点")
+    message = "XiaoNexus 当前版本是 " + spokenVersion + "。"
+   }
+   go s.announceUpdate(message)
+   w.WriteHeader(http.StatusNoContent)
+   return
+  }
   s.admin.mu.Lock()
   accepted:=s.admin.startUpdate(mode, s.announceUpdate)
   s.admin.mu.Unlock()

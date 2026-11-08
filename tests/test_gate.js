@@ -552,7 +552,7 @@ test('direct prefix passes OEM instructions when origin, freshness or owner is u
   }
 });
 test('reserved voice update command is never claimed by an overlapping direct prefix',()=>{
-  for(const [prefix,utterance] of [['检查','检查更新。'],['立即','立即升级。'],['小纽','小纽立即升级。']]){
+  for(const [prefix,utterance] of [['检查','检查更新。'],['立即','立即升级。'],['小纽','小纽立即升级。'],['当前','当前版本。']]){
     const t=setup(),id=t.id('a');
     t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify([prefix]));
     t.event('SpeechRecognizer.Recognize',id);
