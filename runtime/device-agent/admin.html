@@ -219,7 +219,7 @@ async function refresh(loadModel = false) {
 
   el("installedVersion").textContent = status.version ? "当前版本 " + status.version : "";
   renderUpdate(status.update);
-  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",device_reboot_requested:"已请求重启 LX04",device_reboot_failed:"重启请求执行失败",old_updates_removed:"已清理旧版本",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
+  const labels = {answer_accepted:"已接管一轮请求",answer_failed:"模型请求失败",tts_rejected:"原厂 TTS 拒绝播报",tts_accepted:"原厂 TTS 已接收播报",doorbell_blocked:"门铃优先或门铃状态暂不可用",update_available:"发现已签名版本",update_staged:"更新包已校验并暂存",update_pending:"已安排空闲时升级",update_unavailable:"更新不可用",update_insufficient_space:"升级空间不足",device_reboot_requested:"已请求重启 LX04",device_reboot_failed:"重启请求执行失败",old_updates_removed:"已清理旧版本",model_saved:"已保存 DeepSeek API 设置",rules_saved:"已保存话术",login:'管理登录',password_changed:'已更改管理密码',routing_enabled:'已启用 AI 接管',routing_disabled:'已停止 AI 接管'};
   el('events').textContent = (status.events || []).slice().reverse().map(event =>
     new Date(event.time).toLocaleString() + '  ' + labels[event.event]).join('\n');
 }
@@ -278,7 +278,7 @@ el('logout').onclick = action(el('logout'), async () => {
   await api('logout', {});
   signedOut();
 });
-const updateLabels = {rebooting:"正在重启 LX04，请在开机后重新打开管理页。",checking:"正在处理更新请求…",available:"发现已签名更新",staged:"已校验并暂存",pending:"等待设备空闲后安装。安装期间管理页会短暂断开。",unavailable:"暂无可用更新，或更新请求失败。"};
+const updateLabels = {rebooting:"正在重启 LX04，请在开机后重新打开管理页。",checking:"正在处理更新请求…",available:"发现已签名更新",staged:"已校验并暂存",pending:"等待设备空闲后安装。安装期间管理页会短暂断开。",unavailable:"暂无可用更新，或更新请求失败。",insufficient_space:"存储空间不足。请打开下方「清理旧版本」，腾出空间后再升级。"};
 function renderUpdate(update) {
   el("updateState").textContent = (updateLabels[update.state] || "可检查 GitHub Releases 上的已签名更新。") +
     (update.version ? " " + update.version : "");

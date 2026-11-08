@@ -19,8 +19,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
+
+var errInsufficientUpdateSpace = errors.New("insufficient update space")
 
 type adminUpdateStatus struct {
 	Busy    bool   `json:"busy"`
@@ -236,15 +239,19 @@ func (a *admin) runUpdate(mode string, announce func(string), dialog string, exp
 		}
 	}
 	if err != nil {
+		stateBeforeFailure := state
+		state = "unavailable"
 		switch {
+		case errors.Is(err, errInsufficientUpdateSpace), errors.Is(err, syscall.ENOSPC):
+			state = "insufficient_space"
+			message = "存储空间不足。请说清理旧版本，腾出空间后再升级。"
 		case errors.Is(err, errNoNewerUpdate):
 			message = "当前没有可用的新版本。"
-		case state != "available":
+		case stateBeforeFailure != "available":
 			message = "更新未能准备完成，请稍后再试。"
 		default:
 			message = "检查更新失败，请稍后再试。"
 		}
-		state = "unavailable"
 	}
 	offer := mode == "check" && dialog != "" && err == nil && a.slotRoot() != ""
 	if announce != nil && !offer {
@@ -392,8 +399,11 @@ func checkUpdateSpace(ctx context.Context, dir string, archiveBytes int64) error
 		return errors.New("unrecognized disk capacity output")
 	}
 	freeKiB, err := strconv.ParseInt(fields[len(fields)-3], 10, 64)
-	if err != nil || freeKiB < (archiveBytes+maxUpdateUnpacked+(16<<20))/1024+1 {
-		return errors.New("insufficient update space")
+	if err != nil {
+		return errors.New("unrecognized disk capacity output")
+	}
+	if freeKiB < (archiveBytes+maxUpdateUnpacked+(16<<20))/1024+1 {
+		return errInsufficientUpdateSpace
 	}
 	return nil
 }
