@@ -190,6 +190,8 @@
   var directPrefixes = [], directUntil = 0;
   var directClaims = new Map(), priorDirectInstruction = new Map();
   var managementReplies = {
+    // The OEM firmware action generates its own local speech outside this dialog.
+    'System.UpgradeRom': true,
     'SpeechSynthesizer.Speak': true,
     'Template.Toast': true,
     'Template.General': true
