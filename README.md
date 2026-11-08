@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/011178e0-f7f2-49d0-a0fc-03673a98d745
    .\Install_Resident_LX04.ps1 -Device '<ADB 序列号>' -Activate
    ```
 
-   如需用手机配置，可在 USB 安装时为第一条命令添加 `-TlsCertificate '<PEM 证书>' -TlsPrivateKey '<PEM 私钥>'`。证书须受手机信任，并覆盖音箱的局域网 IP。然后打开 `https://<LX04-IP>:8765/`。
+   如需用手机配置，可在 USB 安装时为第一条命令添加 `-TlsCertificate '<PEM 证书>' -TlsPrivateKey '<PEM 私钥>'`。证书须受手机信任，并覆盖音箱的局域网 IP。然后打开 `http://<LX04-IP>/`，设备会跳转到 `https://<LX04-IP>:8765/`。
 3. **设置管理密码。** 输入两次至少 8 个字符的新密码，然后用新密码重新登录。
 4. **授权小米并选择音箱。** 填写绑定音箱的小米账号和密码。按页面提示填写短信或邮箱验证码，并确认绑定列表中的本机。每个 XiaoNexus 实例只允许绑定安装了它的那台 LX04。
 5. **配置并测试 DeepSeek。** 填写 API 地址、模型名和自己的密钥，点击「写入配置」和「测试连接」。已有配置的设备可直接测试，地址不变时密钥留空即可沿用。

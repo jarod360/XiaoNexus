@@ -6,6 +6,7 @@ import (
  "context"
  "crypto/rand"
  "crypto/subtle"
+ "crypto/tls"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -365,7 +366,26 @@ func main() {
     if errors.Is(certErr, os.ErrNotExist) && errors.Is(keyErr, os.ErrNotExist) {
      err = lan.Serve(lanListener)
     } else {
-     err = lan.ServeTLS(lanListener, cert, privateKey)
+     pair, loadErr := tls.LoadX509KeyPair(cert, privateKey)
+     if loadErr != nil {
+      log.Print("LAN HTTPS certificate unavailable: ", loadErr)
+      return
+     }
+     lan.TLSConfig = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+     redirect := &http.Server{Handler: http.HandlerFunc(redirectLANToHTTPS), ReadHeaderTimeout: 3*time.Second, WriteTimeout: 5*time.Second}
+     redirectListener, redirectErr := net.Listen("tcp4", "0.0.0.0:80")
+     if redirectErr != nil {
+      log.Print("LAN HTTP redirect unavailable: ", redirectErr)
+     } else {
+      defer redirectListener.Close()
+      defer redirect.Close()
+      go func() {
+       if err := redirect.Serve(redirectListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+        log.Print("LAN HTTP redirect stopped: ", err)
+       }
+      }()
+     }
+     err = lan.ServeTLS(lanListener, "", "")
     }
     if err != nil && !errors.Is(err,http.ErrServerClosed) { log.Print("LAN management server stopped: ", err) }
    }()

@@ -96,8 +96,8 @@ jobs:
           title="XiaoNexus $RELEASE_VERSION · LX04"
           if [[ "$RELEASE_VERSION" == V52.0.0 ]]; then
             title="XiaoNexus V52.0 RC · LX04"
-          elif [[ "$RELEASE_VERSION" == V52.0.1 ]]; then
-            title="XiaoNexus V52.0.1 RC · LX04"
+          elif [[ "$RELEASE_VERSION" == V52.0.1 || "$RELEASE_VERSION" == V52.0.2 ]]; then
+            title="XiaoNexus $RELEASE_VERSION RC · LX04"
           fi
           gh release create "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --draft --title "$title" --generate-notes \
