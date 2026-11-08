@@ -489,7 +489,7 @@
           if (!payload.isFinal() || !results || results.size() === 0) return accepted;
           var result = Java.cast(results.get(0), RecognizeResultItem);
           var text = String(result.getText()).trim();
-          if (/^(检查更新|小纽检查更新|立即升级|小纽立即升级)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
+          if (/^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""))) return accepted;
           for (var i = 0; i < directPrefixes.length; i++) {
             var prefix = directPrefixes[i];
             var start = text.slice(0, prefix.length);
