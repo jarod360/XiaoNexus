@@ -199,6 +199,7 @@ type receiverStatus struct {
  AgentBusy bool `json:"agent_busy"`
  DoorbellBlocked bool `json:"doorbell_blocked"`
  UpdatePending bool `json:"update_pending"`
+ UpdateOffer string `json:"update_offer"`
  WaitingDialog string `json:"waiting_dialog_id"`
  Healthy bool `json:"healthy"`
  Ready bool `json:"ready"`
@@ -241,13 +242,14 @@ func (c *client) waitForReceiver(parent context.Context) (receiverStatus, error)
  }
 }
 
-func (c *client) voiceUpdate(mode string) {
+func (c *client) voiceUpdate(mode, dialog string) {
  ctx,cancel:=context.WithTimeout(context.Background(),900*time.Millisecond);defer cancel()
  body,_:=json.Marshal(mode)
  req,err:=http.NewRequestWithContext(ctx,http.MethodPost,receiver+"/v1/update/voice",bytes.NewReader(body))
  if err!=nil{return}
  req.Header.Set("Authorization","Bearer "+c.token)
  req.Header.Set("Content-Type","application/json")
+ req.Header.Set("X-XiaoNexus-Dialog",dialog)
  response,err:=c.http.Do(req)
  if err!=nil{return}
  defer response.Body.Close()
@@ -361,6 +363,7 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
  lastActivity:=time.Now()
  directClaims:=make(map[string]time.Time)
  sentDirect:=false
+ sentOffer:=""
  updateWaitReason:=""
  slots:=slotControl{root:os.Getenv("XIAONEXUS_SLOT_ROOT"),trial:os.Getenv("XIAONEXUS_TRIAL_SLOT"),deadline:time.Now().Add(45*time.Second)}
  // The JS gate starts BLOCKED. It may only be unblocked after both the
@@ -403,6 +406,9 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
    prefixes,_:=json.Marshal(rules)
    _,_=io.WriteString(stdin,"DIRECT "+string(prefixes)+"\n")
    sentDirect=true
+   if status.UpdateOffer!=sentOffer && validID.MatchString(status.UpdateOffer) {
+    if _,err:=io.WriteString(stdin,"UPDATE_OFFER "+status.UpdateOffer+"\n");err==nil{sentOffer=status.UpdateOffer}
+   }
   } else if sentDirect {
    _,_=io.WriteString(stdin,"DIRECT null\n")
    sentDirect=false
@@ -463,6 +469,12 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
    if ev.kind=="fatal"{return errors.New(ev.value)}
    if ev.kind=="inject"{
     if ev.value=="XIAONEXUS_RECOGNIZE_ACTIVITY"{lastActivity=time.Now();continue}
+    if id,ok:=strings.CutPrefix(ev.value,"XIAONEXUS_UPDATE_CONFIRM:");ok {
+     if enable && ready && !routingBlocked && id==sentOffer && validID.MatchString(id) {
+      c.voiceUpdate("confirm",id)
+     }
+     continue
+    }
     if id,ok:=strings.CutPrefix(ev.value,"XIAONEXUS_DIRECT:");ok && enable && ready && validID.MatchString(id){
      if len(directClaims)<16{
       id=strings.ToLower(id)
@@ -530,7 +542,9 @@ func run(ctx context.Context,injector,script string,enable bool,c *client)error{
     if ev.inst.kind=="asr" {
      if canon(ev.inst.text)=="测试续听" {continue}
      if mode:=voiceUpdateMode(ev.inst.text);mode!="" {
-      c.voiceUpdate(mode)
+      dialog:=""
+      if !routingBlocked {dialog=ev.inst.id}
+      c.voiceUpdate(mode,dialog)
       continue
      }
      if directQuery(ev.inst.text,status.Rules.Direct)!="" {

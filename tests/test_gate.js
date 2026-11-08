@@ -11,6 +11,7 @@ let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('PASS', name); }
 function setup(unblock = true) {
   let now = 100000;
+  let promptFrames = 0;
   let currentThread = 100;
   let identity = 1;
   let cardShows = 0, cardCalls = 0, latencyCalls = 0, hides = 0, dismissRequests=0;
@@ -57,6 +58,10 @@ function setup(unblock = true) {
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResult':{},
     'com.xiaomi.ai.api.SpeechRecognizer$RecognizeResultItem':{},
     'android.media.ToneGenerator':{$new:()=>({startTone:()=>true,release(){}})},
+    'android.util.Base64':{decode:()=>new Uint8Array(32000)},
+    'android.media.AudioTrack':{$new:()=>({
+      write:pcm=>pcm.length, play(){}, release(){}, getPlaybackHeadPosition:()=>promptFrames
+    })},
     'com.xiaomi.micolauncher.common.speech.SpeechManager':{getInstance:()=>({setWakeup(){}})},
     'java.lang.System':{identityHashCode:(task)=>task.hash},
     'java.lang.Thread':{currentThread:()=>({getId:()=>currentThread})},
@@ -74,6 +79,7 @@ function setup(unblock = true) {
     return obj;
   }
   const sandbox={console:{log(){}},Java:{use:n=>{if(!methods[n])throw Error('missing mock '+n);return methods[n]},perform:cb=>cb(),cast,retain:task=>task===cardObject?{dismissForce:()=>{dismissRequests++},$dispose(){}}:({equals:that=>that===task,$dispose(){}})},rpc,setTimeout:fakeTimeout,clearTimeout:fakeClearTimeout,send:(m)=>{if(Array.isArray(m))controlMessages.push(m);else messages.push(m)},Date:{now:()=>now},Map,Object,String,Number,Error,Array,Boolean};
+  sandbox.xiaonexusUpdatePrompt = 'fixture';
   vm.runInNewContext(scriptText,sandbox,{filename:'lx04_v50_gate.js'});
   sandbox.Java.scheduleOnMainThread=cb=>cb();
   if (unblock) rpc.exports.onFridaStdin('UNBLOCK');
@@ -99,7 +105,9 @@ function setup(unblock = true) {
   function otherCard(text){return invoke(card,cardObject,text)}
   function status(){return rpc.exports.status()}
   function advance(ms){now+=ms;for(const [id,t] of [...timers]){if(t.due<=now){timers.delete(id);t.fn()}}}
-  return {id,event,instruction,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,rpc,messages,controlMessages,counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
+  return {id,event,instruction,speakEvent,owner,write,end,cancelOwner,toast,otherCard,status,advance,
+    endPrompt:()=>{promptFrames=16000},rpc,messages,controlMessages,
+    counts:()=>({cardShows,cardCalls,latencyCalls,hides,dismissRequests,shownTexts:shownTexts.slice(),timers:timers.size})};
 }
 const REF='这可把我难住了，看来要更努力学习了';
 function orig(t,id,text){t.event('SpeechRecognizer.Recognize',id);t.event('System.Ack',id);t.speakEvent(id,text)}
@@ -599,5 +607,24 @@ test('follow-up probe waits for the tone and accepts one recognized confirmation
   assert(t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_CONFIRMED')));
   t.advance(5000);
   assert(!t.controlMessages.some(m=>m[1].includes('FOLLOWUP_PROBE_TIMEOUT')));
+});
+test('update confirmation listens after local playback and consumes only one reply',()=>{
+  for (const [reply,expected] of [['更新',true],['立即更新',true],['取消',false],['天气',false]]) {
+    const t=setup(),source=t.id('a'),answer=t.id('b');
+    t.rpc.exports.onFridaStdin('DIRECT []');
+    t.event('SpeechRecognizer.Recognize',source);
+    t.instruction(source,'SpeechRecognizer.RecognizeResult','检查更新');
+    t.rpc.exports.onFridaStdin('UPDATE_OFFER '+source);
+    t.instruction(source,'Dialog.Finish');
+    t.advance(50);
+    assert(!t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+    t.endPrompt();
+    t.advance(50);
+    assert(t.controlMessages.some(m=>m[1].includes('LISTEN_REQUESTED')));
+    t.event('SpeechRecognizer.Recognize',answer);
+    t.instruction(answer,'SpeechRecognizer.RecognizeResult',reply);
+    t.instruction(answer,'SpeechRecognizer.RecognizeResult',reply);
+    assert.equal(t.controlMessages.filter(m=>m[1]==='XIAONEXUS_UPDATE_CONFIRM:'+source+'\n').length,Number(expected));
+  }
 });
 console.log('RESULT',passed,'tests PASS');

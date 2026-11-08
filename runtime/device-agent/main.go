@@ -138,7 +138,9 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  if !s.authorized(r) { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
  if r.URL.Path == "/v1/update/voice" && r.Method == http.MethodPost && s.admin != nil {
   var mode string
-  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply" && mode!="version"){http.Error(w,"invalid update request",400);return}
+  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply" && mode!="version" && mode!="confirm"){http.Error(w,"invalid update request",400);return}
+  dialog:=strings.ToLower(r.Header.Get("X-XiaoNexus-Dialog"))
+  if dialog!="" && !dialogPattern.MatchString(dialog){http.Error(w,"invalid dialog",400);return}
   if s.doorbell!=nil && s.doorbell.check(r.Context()){http.Error(w,"doorbell prioritized",503);return}
   if mode=="version" {
    message := "无法读取当前版本。"
@@ -151,7 +153,18 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    return
   }
   s.admin.mu.Lock()
-  accepted:=s.admin.startUpdate(mode, s.announceUpdate)
+  expectedVersion:=""
+  if mode=="confirm" {
+   offer:=s.admin.voiceOffer
+   if dialog=="" || dialog!=offer.dialog || !time.Now().Before(offer.expires) {
+    s.admin.mu.Unlock()
+    http.Error(w,"update confirmation expired",409)
+    return
+   }
+   expectedVersion=offer.version
+   mode="apply"
+  }
+  accepted:=s.admin.startUpdate(mode, s.announceUpdate, dialog, expectedVersion)
   busy:=s.admin.update.Busy
   pending:=s.admin.updatePending()
   s.admin.mu.Unlock()
@@ -194,7 +207,8 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
   busy := s.cancel != nil
   s.mu.Unlock()
   var rules *adminRules
-  if s.admin != nil { rules = s.admin.rules.Load() }
+  offer:=""
+  if s.admin != nil { rules = s.admin.rules.Load(); offer=s.admin.updateOfferDialog() }
   status := struct {
    Healthy bool `json:"healthy"`
    Ready bool `json:"ready"`
@@ -204,9 +218,10 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    AgentBusy bool `json:"agent_busy"`
    DoorbellBlocked bool `json:"doorbell_blocked"`
    UpdatePending bool `json:"update_pending"`
+   UpdateOffer string `json:"update_offer,omitempty"`
    Rules *adminRules `json:"rules,omitempty"`
    WaitingDialog string `json:"waiting_dialog_id"`
-  }{healthy, ready, blocked || paused || !modelReady || !speakerReady, mode, true, busy, blocked, s.admin != nil && s.admin.updateReadyToInstall(), rules, waiting}
+  }{healthy, ready, blocked || paused || !modelReady || !speakerReady, mode, true, busy, blocked, s.admin != nil && s.admin.updateReadyToInstall(), offer, rules, waiting}
   _ = json.NewEncoder(w).Encode(status)
   return
  }
