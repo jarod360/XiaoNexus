@@ -31,6 +31,7 @@ type updateManifest struct {
 }
 
 var releaseVersion = regexp.MustCompile(`^V(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$`)
+var errNoNewerUpdate = errors.New("update must be newer than installed version")
 
 func versionParts(s string) ([3]int, error) {
 	var v [3]int
@@ -73,7 +74,7 @@ func verifyUpdateManifest(raw, sig []byte, key ed25519.PublicKey, current, flavo
 			break
 		}
 	}
-	return m, errors.New("update must be newer than installed version")
+	return m, errNoNewerUpdate
 }
 
 func saveVerifiedArchive(dst *os.File, src io.Reader, m updateManifest) error {
