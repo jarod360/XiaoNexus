@@ -26,7 +26,7 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
   <p id="xiaomiState"></p>
   <p id="protectedHint" class="muted" hidden>通过安装器提供的本机入口或可信 HTTPS 连接操作授权、试播和新密钥填写。</p>
   <details id="xiaomiEdit">
-    <summary>授权或更换小米账号</summary>
+    <summary id="xiaomiEditTitle">绑定小米音箱</summary>
     <p id="xiaomiAttemptState" role="status" hidden></p>
     <form id="xiaomiStart">
       <label>小米账号<input id="xiaomiAccount" required maxlength="160" autocomplete="off"></label>
@@ -123,7 +123,7 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
     </form>
   </details>
 </section>
-<section id="passwordCard"><details id="passwordPanel"><summary>更改管理密码</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
+<section id="passwordCard"><h2>更改管理密码</h2><details id="passwordPanel"><summary>展开密码表单</summary><aside id="initial" hidden>首次登录请更改初始密码，并妥善保存新密码。改密后请重新登录。</aside><form id="changePassword">
   <div id="currentPasswordRow" hidden><label>当前密码<input id="currentPassword" name="current-password" type="password" required autocomplete="current-password"></label></div>
   <label>新密码（至少 8 个字符）<input id="newPassword" name="new-password" type="password" required minlength="8" autocomplete="new-password"></label>
   <label>确认新密码<input id="confirmPassword" name="confirm-new-password" type="password" required minlength="8" autocomplete="new-password"></label>
@@ -339,7 +339,13 @@ function renderXiaomi() {
     rate_limited:"小米暂时限制登录，请稍后再试。"
   };
   const busy = ["working","otp","select"].includes(x.state);
-  el("xiaomiState").textContent = x.bound ? "已有音箱绑定，可继续测试。" : "尚未连接音箱。";
+  el("xiaomiState").textContent = x.reauthorize ? "小米授权已失效，请重新绑定音箱。" :
+    x.bound ? "已连接一台小米音箱。" :
+    x.saved ? "已有绑定，暂时无法连接。可以重新绑定音箱。" : "尚未绑定音箱。";
+  el("xiaomiEditTitle").textContent = x.bound ? "更换绑定" : x.saved ? "重新绑定" : "绑定小米音箱";
+  el("protectedHint").textContent = x.saved ?
+    "更换或重新绑定请使用安装器提供的本机入口或可信 HTTPS。" :
+    "绑定请使用安装器提供的本机入口或可信 HTTPS。";
   const attempt = el("xiaomiAttemptState");
   attempt.textContent = x.bound && x.state === "login_failed" ?
     "本次重新授权失败，仍使用之前绑定的音箱。" : (states[x.state] || "");
