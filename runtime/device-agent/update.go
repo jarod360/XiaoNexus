@@ -29,8 +29,9 @@ type adminUpdateStatus struct {
 }
 
 type voiceUpdateOffer struct {
-	dialog, version string
-	expires time.Time
+	dialog   string
+	manifest updateManifest
+	expires  time.Time
 }
 
 func (a *admin) updateOfferDialog() string {
@@ -173,23 +174,23 @@ func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
 }
 
 // Caller holds a.mu.
-func (a *admin) startUpdate(mode string, announce func(string), dialog, expectedVersion string) bool {
+func (a *admin) startUpdate(mode string, announce func(string), dialog string, expected updateManifest) bool {
 	if a.credential.Initial || a.rebooting || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
 		return false
 	}
 	a.update = adminUpdateStatus{Busy: true, State: "checking"}
 	a.voiceOffer = voiceUpdateOffer{}
-	go a.runUpdate(mode, announce, dialog, expectedVersion)
+	go a.runUpdate(mode, announce, dialog, expected)
 	return true
 }
 
-func (a *admin) runUpdate(mode string, announce func(string), dialog, expectedVersion string) {
+func (a *admin) runUpdate(mode string, announce func(string), dialog string, expected updateManifest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	client := updateHTTPClient()
 	defer client.CloseIdleConnections()
 	m, err := findUpdate(ctx, client)
-	if err == nil && expectedVersion != "" && m.Version != expectedVersion {
+	if err == nil && expected.Version != "" && m != expected {
 		err = errors.New("available update changed after confirmation")
 	}
 	state := "available"
@@ -224,7 +225,7 @@ func (a *admin) runUpdate(mode string, announce func(string), dialog, expectedVe
 	a.mu.Lock()
 	a.update = adminUpdateStatus{State: state, Version: m.Version}
 	if offer {
-		a.voiceOffer = voiceUpdateOffer{dialog:dialog, version:m.Version, expires:time.Now().Add(15*time.Second)}
+		a.voiceOffer = voiceUpdateOffer{dialog: dialog, manifest: m, expires: time.Now().Add(15 * time.Second)}
 	}
 	a.event("update_" + state)
 	a.mu.Unlock()

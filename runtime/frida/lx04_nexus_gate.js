@@ -198,13 +198,14 @@
   }
   function listenAfterPrompt(probe) {
     if (followupProbe !== probe) return;
-    if (routingBlocked || Date.now() > directUntil || latestRecognize !== probe.source) {
+    if (routingBlocked || gateDisabled || errors || Date.now() > directUntil || latestRecognize !== probe.source) {
       finishFollowupProbe('CANCELLED');
       return;
     }
     try {
       var manager = Java.use('com.xiaomi.micolauncher.common.speech.SpeechManager').getInstance();
       probe.listening = true;
+      probe.listenUntil = Date.now() + 5000;
       manager.setWakeup();
       note('FOLLOWUP_PROBE_LISTEN_REQUESTED');
       setTimeout(function () {
@@ -222,12 +223,17 @@
       var deadline = Date.now() + 5000;
       function checkPlayback() {
         Java.scheduleOnMainThread(function () {
-          var complete = track.getPlaybackHeadPosition() >= pcm.length / 2;
-          if (!complete && followupProbe === probe && Date.now() < deadline) {
-            setTimeout(checkPlayback, 50);
-            return;
+          var complete = false;
+          try {
+            complete = track.getPlaybackHeadPosition() >= pcm.length / 2;
+            if (!complete && followupProbe === probe && Date.now() < deadline) {
+              setTimeout(checkPlayback, 50);
+              return;
+            }
+          } catch (_) {
+            complete = false;
           }
-          track.release();
+          try { track.release(); } catch (_) {}
           if (followupProbe !== probe) return;
           if (complete) listenAfterPrompt(probe);
           else finishFollowupProbe('UNAVAILABLE');
@@ -235,7 +241,7 @@
       }
       setTimeout(checkPlayback, 50);
     } catch (_) {
-      if (track) track.release();
+      if (track) { try { track.release(); } catch (_) {} }
       finishFollowupProbe('UNAVAILABLE');
     }
   }
@@ -445,8 +451,8 @@
       if (updateOffer) {
         var offeredId = updateOffer[1];
         var offeredClaim = directClaims.get(offeredId);
-        if (offeredClaim && offeredClaim.check && latestRecognize === offeredId &&
-            !routingBlocked && Date.now() <= directUntil) {
+        if (offeredClaim && offeredClaim.check && !offeredClaim.offer && latestRecognize === offeredId &&
+            !routingBlocked && !gateDisabled && !errors && Date.now() <= directUntil) {
           offeredClaim.offer = true;
           if (offeredClaim.finished) startFollowupProbe(offeredId, true);
         }
@@ -596,8 +602,10 @@
             var probe = followupProbe;
             var confirmed = probe.update ? /^(更新|立即更新)$/.test(canonical) : canonical === '测试完成';
             var cancelled = probe.update && canonical === '取消';
-            finishFollowupProbe(confirmed ? 'CONFIRMED' : cancelled ? 'CANCELLED' : 'OTHER_REPLY');
-            if ((confirmed || cancelled) && recognizedSource && !routingBlocked && Date.now() <= directUntil) {
+            var eligible = recognizedSource && !routingBlocked && !gateDisabled && !errors &&
+              Date.now() <= directUntil && Date.now() < probe.listenUntil;
+            finishFollowupProbe(!eligible ? 'CANCELLED' : confirmed ? 'CONFIRMED' : cancelled ? 'CANCELLED' : 'OTHER_REPLY');
+            if (eligible && (confirmed || cancelled)) {
               directClaims.set(id, {when:Date.now(), management:true});
               if (confirmed && probe.update) emitHostLine('XIAONEXUS_UPDATE_CONFIRM:' + probe.source);
               return accepted;

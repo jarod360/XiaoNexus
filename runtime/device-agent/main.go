@@ -153,7 +153,7 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
    return
   }
   s.admin.mu.Lock()
-  expectedVersion:=""
+  var expected updateManifest
   if mode=="confirm" {
    offer:=s.admin.voiceOffer
    if dialog=="" || dialog!=offer.dialog || !time.Now().Before(offer.expires) {
@@ -161,10 +161,10 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
     http.Error(w,"update confirmation expired",409)
     return
    }
-   expectedVersion=offer.version
+   expected=offer.manifest
    mode="apply"
   }
-  accepted:=s.admin.startUpdate(mode, s.announceUpdate, dialog, expectedVersion)
+  accepted:=s.admin.startUpdate(mode, s.announceUpdate, dialog, expected)
   busy:=s.admin.update.Busy
   pending:=s.admin.updatePending()
   s.admin.mu.Unlock()

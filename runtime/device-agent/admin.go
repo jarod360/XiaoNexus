@@ -394,7 +394,7 @@ func (a *admin) serveManagement(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "change initial password", 403)
 			return
 		}
-		if !a.startUpdate(mode, nil, "", "") {
+		if !a.startUpdate(mode, nil, "", updateManifest{}) {
 			http.Error(w, "update unavailable or already requested", 409)
 			return
 		}
