@@ -545,10 +545,12 @@ test('direct prefix passes OEM instructions when origin, freshness or owner is u
   }
 });
 test('reserved voice update command is never claimed by an overlapping direct prefix',()=>{
-  const t=setup(),id=t.id('a');
-  t.rpc.exports.onFridaStdin('DIRECT ["检查"]');
-  t.event('SpeechRecognizer.Recognize',id);
-  assert(t.instruction(id,'SpeechRecognizer.RecognizeResult','检查更新。'));
-  assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
+  for(const [prefix,utterance] of [['检查','检查更新。'],['立即','立即升级。'],['小纽','小纽立即升级。']]){
+    const t=setup(),id=t.id('a');
+    t.rpc.exports.onFridaStdin('DIRECT '+JSON.stringify([prefix]));
+    t.event('SpeechRecognizer.Recognize',id);
+    assert(t.instruction(id,'SpeechRecognizer.RecognizeResult',utterance));
+    assert(!t.controlMessages.some(m=>m[1].startsWith('XIAONEXUS_DIRECT:')));
+  }
 });
 console.log('RESULT',passed,'tests PASS');
