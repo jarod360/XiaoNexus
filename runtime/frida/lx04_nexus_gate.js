@@ -611,7 +611,7 @@
               return accepted;
             }
           }
-          var managementCommand = followupTest || /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(canonical);
+          var managementCommand = followupTest || /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本|清理旧版本)$/.test(canonical);
           if (managementCommand) {
             var reason = null;
             if (!recognizedSource || Date.now() - source.when > 12000) reason = 'ORIGIN';

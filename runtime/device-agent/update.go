@@ -163,14 +163,42 @@ func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := a.removeOldUpdateSlots(versions); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// The caller holds a.mu and has validated the versions with oldUpdateSlots.
+func (a *admin) removeOldUpdateSlots(versions []string) error {
 	for _, version := range versions {
 		if err := os.RemoveAll(filepath.Join(a.slotRoot(), version)); err != nil {
-			http.Error(w, "清理未全部完成，请重新读取剩余旧版本。", http.StatusInternalServerError)
-			return
+			return errors.New("清理未全部完成，请重新读取剩余旧版本。")
 		}
 	}
 	a.event("old_updates_removed")
-	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (a *admin) clearOldUpdateSlotsByVoice() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	slots, err := a.oldUpdateSlots()
+	if err != nil {
+		return err.Error()
+	}
+	if len(slots) == 0 {
+		return "没有可清理的旧版本。"
+	}
+	versions := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		versions = append(versions, slot.Version)
+	}
+	if err := a.removeOldUpdateSlots(versions); err != nil {
+		return err.Error()
+	}
+	return fmt.Sprintf("已清理%d个旧版本。", len(versions))
 }
 
 // Caller holds a.mu.

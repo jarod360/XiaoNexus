@@ -138,10 +138,15 @@ func (s *server) handler(w http.ResponseWriter, r *http.Request) {
  if !s.authorized(r) { http.Error(w, "unauthorized", http.StatusUnauthorized); return }
  if r.URL.Path == "/v1/update/voice" && r.Method == http.MethodPost && s.admin != nil {
   var mode string
-  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply" && mode!="version" && mode!="confirm"){http.Error(w,"invalid update request",400);return}
+  if !readAdminJSON(w,r,&mode) || (mode!="check" && mode!="apply" && mode!="version" && mode!="confirm" && mode!="cleanup"){http.Error(w,"invalid update request",400);return}
   dialog:=strings.ToLower(r.Header.Get("X-XiaoNexus-Dialog"))
   if dialog!="" && !dialogPattern.MatchString(dialog){http.Error(w,"invalid dialog",400);return}
   if s.doorbell!=nil && s.doorbell.check(r.Context()){http.Error(w,"doorbell prioritized",503);return}
+  if mode=="cleanup" {
+   go func(){s.announceUpdate(s.admin.clearOldUpdateSlotsByVoice())}()
+   w.WriteHeader(http.StatusNoContent)
+   return
+  }
   if mode=="version" {
    message := "无法读取当前版本。"
    if releaseVersion.MatchString(installedVersion) {
