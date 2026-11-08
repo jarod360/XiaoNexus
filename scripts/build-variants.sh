@@ -3,7 +3,7 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 VERSION=$(tr -d '\r\n' < "$ROOT/VERSION")
-case "$VERSION" in V51.*|V52.0.0|V52.0.1|V52.0.2|V52.0.3|V52.0.4|V52.0.5|V52.0.6|V52.0.7|V52.0.8|V52.0.9|V52.0.10|V52.0.11) ;; *) echo 'Expected V51.x or the V52.0 RC build identifier' >&2; exit 1 ;; esac
+case "$VERSION" in V51.*|V52.0.0|V52.0.1|V52.0.2|V52.0.3|V52.0.4|V52.0.5|V52.0.6|V52.0.7|V52.0.8|V52.0.9|V52.0.10|V52.0.11|V52.0.12) ;; *) echo 'Expected V51.x or the V52.0 RC build identifier' >&2; exit 1 ;; esac
 python3 "$ROOT/scripts/prepare-legacy-variants.py"
 OUT="$ROOT/dist"
 mkdir -p "$OUT"
@@ -11,7 +11,12 @@ cd "$ROOT/.build/legacy-agent-src/client"
 go test ./cmd/xiaonexus-agent ./cmd/xiaonexus-supervisor ./miservice
 go test -tags doorbell ./cmd/xiaonexus-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o "$OUT/xiaonexus-supervisor-armv7" ./cmd/xiaonexus-supervisor
-cp "$ROOT/runtime/frida/lx04_nexus_gate.js" "$OUT/lx04_nexus_gate.js"
+{
+  printf "var xiaonexusUpdatePrompt = '"
+  base64 "$ROOT/runtime/frida/update-confirm.pcm" | tr -d '\r\n'
+  printf "';\n"
+  cat "$ROOT/runtime/frida/lx04_nexus_gate.js"
+} > "$OUT/lx04_nexus_gate.js"
 for flavor in standard doorbell; do
   update_key=${XIAONEXUS_UPDATE_PUBLIC_KEY:-}
   case "$update_key" in

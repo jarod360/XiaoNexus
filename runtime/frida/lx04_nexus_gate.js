@@ -190,17 +190,62 @@
   var directPrefixes = [], directUntil = 0;
   var directClaims = new Map(), priorDirectInstruction = new Map();
   var followupProbe = null;
+  var latestRecognize = null;
   function finishFollowupProbe(result) {
     if (!followupProbe) return;
     followupProbe = null;
     note('FOLLOWUP_PROBE_' + result);
   }
-  function startFollowupProbe(id) {
+  function listenAfterPrompt(probe) {
+    if (followupProbe !== probe) return;
+    if (routingBlocked || Date.now() > directUntil || latestRecognize !== probe.source) {
+      finishFollowupProbe('CANCELLED');
+      return;
+    }
+    try {
+      var manager = Java.use('com.xiaomi.micolauncher.common.speech.SpeechManager').getInstance();
+      probe.listening = true;
+      manager.setWakeup();
+      note('FOLLOWUP_PROBE_LISTEN_REQUESTED');
+      setTimeout(function () {
+        if (followupProbe === probe) finishFollowupProbe('TIMEOUT');
+      }, 5000);
+    } catch (_) { finishFollowupProbe('UNAVAILABLE'); }
+  }
+  function playUpdatePrompt(probe) {
+    var track = null;
+    try {
+      var pcm = Java.use('android.util.Base64').decode(xiaonexusUpdatePrompt, 0);
+      track = Java.use('android.media.AudioTrack').$new(3, 16000, 4, 2, pcm.length, 0);
+      if (track.write(pcm, 0, pcm.length) !== pcm.length) throw Error('prompt write failed');
+      track.play();
+      var deadline = Date.now() + 5000;
+      function checkPlayback() {
+        Java.scheduleOnMainThread(function () {
+          var complete = track.getPlaybackHeadPosition() >= pcm.length / 2;
+          if (!complete && followupProbe === probe && Date.now() < deadline) {
+            setTimeout(checkPlayback, 50);
+            return;
+          }
+          track.release();
+          if (followupProbe !== probe) return;
+          if (complete) listenAfterPrompt(probe);
+          else finishFollowupProbe('UNAVAILABLE');
+        });
+      }
+      setTimeout(checkPlayback, 50);
+    } catch (_) {
+      if (track) track.release();
+      finishFollowupProbe('UNAVAILABLE');
+    }
+  }
+  function startFollowupProbe(id, update) {
     if (followupProbe) return;
-    var probe = {source:id, reply:null, listening:false};
+    var probe = {source:id, reply:null, listening:false, update:update};
     followupProbe = probe;
     Java.scheduleOnMainThread(function () {
       if (followupProbe !== probe) return;
+      if (update) { playUpdatePrompt(probe); return; }
       var tone = null;
       try {
         tone = Java.use('android.media.ToneGenerator').$new(3, 60);
@@ -213,19 +258,7 @@
       setTimeout(function () {
        Java.scheduleOnMainThread(function () {
         tone.release();
-        if (followupProbe !== probe || routingBlocked || Date.now() > directUntil) {
-          if (followupProbe === probe) finishFollowupProbe('CANCELLED');
-          return;
-        }
-        try {
-          var manager = Java.use('com.xiaomi.micolauncher.common.speech.SpeechManager').getInstance();
-          probe.listening = true;
-          manager.setWakeup();
-          note('FOLLOWUP_PROBE_LISTEN_REQUESTED');
-          setTimeout(function () {
-            if (followupProbe === probe) finishFollowupProbe('TIMEOUT');
-          }, 5000);
-        } catch (_) { finishFollowupProbe('UNAVAILABLE'); }
+        listenAfterPrompt(probe);
        });
       }, 500);
     });
@@ -408,6 +441,17 @@
   rpc.exports = {
     onFridaStdin: function (input) {
       var command = String(input).trim();
+      var updateOffer = /^UPDATE_OFFER ([a-f0-9]{31,32})$/.exec(command);
+      if (updateOffer) {
+        var offeredId = updateOffer[1];
+        var offeredClaim = directClaims.get(offeredId);
+        if (offeredClaim && offeredClaim.check && latestRecognize === offeredId &&
+            !routingBlocked && Date.now() <= directUntil) {
+          offeredClaim.offer = true;
+          if (offeredClaim.finished) startFollowupProbe(offeredId, true);
+        }
+        return;
+      }
       if (command.indexOf('DIRECT ') === 0) {
         directPrefixes = [];
         directUntil = 0;
@@ -526,9 +570,9 @@
           var name = String(instruction.getFullName());
           var claim = directClaims.get(id);
           if (claim) {
-            if (claim.followupTest && name === 'Dialog.Finish') {
-              claim.followupTest = false;
-              startFollowupProbe(id);
+            if (name === 'Dialog.Finish' && !claim.finished) {
+              claim.finished = true;
+              if (claim.followupTest || claim.offer) startFollowupProbe(id, !!claim.offer);
             }
             if (claim.management) return managementReplies[name] !== true;
             return directHousekeeping[name] === true;
@@ -549,9 +593,13 @@
           var canonical = text.replace(/[\s\p{P}\p{S}]/gu, "");
           var followupTest = canonical === '测试续听';
           if (followupProbe && followupProbe.listening && followupProbe.reply === id) {
-            finishFollowupProbe(canonical === '测试完成' ? 'CONFIRMED' : 'OTHER_REPLY');
-            if (canonical === '测试完成' && recognizedSource && !routingBlocked) {
+            var probe = followupProbe;
+            var confirmed = probe.update ? /^(更新|立即更新)$/.test(canonical) : canonical === '测试完成';
+            var cancelled = probe.update && canonical === '取消';
+            finishFollowupProbe(confirmed ? 'CONFIRMED' : cancelled ? 'CANCELLED' : 'OTHER_REPLY');
+            if ((confirmed || cancelled) && recognizedSource && !routingBlocked && Date.now() <= directUntil) {
               directClaims.set(id, {when:Date.now(), management:true});
+              if (confirmed && probe.update) emitHostLine('XIAONEXUS_UPDATE_CONFIRM:' + probe.source);
               return accepted;
             }
           }
@@ -565,7 +613,8 @@
               note('MANAGEMENT_COMMAND_PASSED_' + reason + '_' + id.slice(0, 8));
               return accepted;
             }
-            directClaims.set(id, {when:Date.now(), management:true, followupTest:followupTest});
+            directClaims.set(id, {when:Date.now(), management:true, followupTest:followupTest,
+              check:/^(检查更新|小纽检查更新)$/.test(canonical)});
             note('MANAGEMENT_COMMAND_CLAIMED');
             return accepted;
           }
@@ -608,6 +657,7 @@
           var id = normalizeId(ev.getId());
           tally(eventTypeCounts, name);
           if (name === 'SpeechRecognizer.Recognize') {
+            latestRecognize = id;
             stats.recognizeEvents++;
             if (id) emitHostLine('XIAONEXUS_RECOGNIZE_ACTIVITY');
             if (id && followupProbe && id !== followupProbe.source && id !== followupProbe.reply) {

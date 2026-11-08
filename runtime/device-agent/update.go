@@ -28,6 +28,20 @@ type adminUpdateStatus struct {
 	Version string `json:"version,omitempty"`
 }
 
+type voiceUpdateOffer struct {
+	dialog, version string
+	expires time.Time
+}
+
+func (a *admin) updateOfferDialog() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if time.Now().Before(a.voiceOffer.expires) {
+		return a.voiceOffer.dialog
+	}
+	return ""
+}
+
 func (a *admin) slotRoot() string {
 	root := filepath.Join(a.dir, "updates")
 	if os.Getenv("XIAONEXUS_SLOT_ROOT") != root {
@@ -159,21 +173,25 @@ func (a *admin) serveOldUpdateSlots(w http.ResponseWriter, r *http.Request) {
 }
 
 // Caller holds a.mu.
-func (a *admin) startUpdate(mode string, announce func(string)) bool {
+func (a *admin) startUpdate(mode string, announce func(string), dialog, expectedVersion string) bool {
 	if a.credential.Initial || a.rebooting || a.update.Busy || a.updatePending() || (mode == "apply" && a.slotRoot() == "") {
 		return false
 	}
 	a.update = adminUpdateStatus{Busy: true, State: "checking"}
-	go a.runUpdate(mode, announce)
+	a.voiceOffer = voiceUpdateOffer{}
+	go a.runUpdate(mode, announce, dialog, expectedVersion)
 	return true
 }
 
-func (a *admin) runUpdate(mode string, announce func(string)) {
+func (a *admin) runUpdate(mode string, announce func(string), dialog, expectedVersion string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	client := updateHTTPClient()
 	defer client.CloseIdleConnections()
 	m, err := findUpdate(ctx, client)
+	if err == nil && expectedVersion != "" && m.Version != expectedVersion {
+		err = errors.New("available update changed after confirmation")
+	}
 	state := "available"
 	message := "发现新版本。要安装，请说立即升级。"
 	if mode != "check" && err == nil {
@@ -199,11 +217,15 @@ func (a *admin) runUpdate(mode string, announce func(string)) {
 		}
 		state = "unavailable"
 	}
-	if announce != nil {
+	offer := mode == "check" && dialog != "" && err == nil && a.slotRoot() != ""
+	if announce != nil && !offer {
 		announce(message)
 	}
 	a.mu.Lock()
 	a.update = adminUpdateStatus{State: state, Version: m.Version}
+	if offer {
+		a.voiceOffer = voiceUpdateOffer{dialog:dialog, version:m.Version, expires:time.Now().Add(15*time.Second)}
+	}
 	a.event("update_" + state)
 	a.mu.Unlock()
 }
