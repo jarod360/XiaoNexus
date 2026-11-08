@@ -189,6 +189,11 @@
   var customRefusals = [];
   var directPrefixes = [], directUntil = 0;
   var directClaims = new Map(), priorDirectInstruction = new Map();
+  var managementReplies = {
+    'SpeechSynthesizer.Speak': true,
+    'Template.Toast': true,
+    'Template.General': true
+  };
   var directHousekeeping = {
     'SpeechRecognizer.RecognizeResult':true,
     'SpeechRecognizer.VoiceprintRecognizeResult':true,
@@ -475,7 +480,11 @@
           prune(directClaims, 120000);
           prune(priorDirectInstruction, 12000);
           var name = String(instruction.getFullName());
-          if (directClaims.has(id)) return directHousekeeping[name] === true;
+          var claim = directClaims.get(id);
+          if (claim) {
+            if (claim.management) return managementReplies[name] !== true;
+            return directHousekeeping[name] === true;
+          }
           var source = origins.get(id);
           var recognizedSource = source && source.name === 'SpeechRecognizer.Recognize';
           if (name !== 'SpeechRecognizer.RecognizeResult') {
@@ -491,11 +500,15 @@
           var text = String(result.getText()).trim();
           var managementCommand = /^(检查更新|小纽检查更新|立即升级|小纽立即升级|当前版本)$/.test(text.replace(/[\s\p{P}\p{S}]/gu, ""));
           if (managementCommand) {
-            if (!recognizedSource || Date.now() - source.when > 12000 || priorDirectInstruction.has(id) ||
-                routingBlocked || !ready || Date.now() > directUntil || gateDisabled || errors || pending || countOwners() !== 0) {
+            var reason = null;
+            if (!recognizedSource || Date.now() - source.when > 12000) reason = 'ORIGIN';
+            else if (routingBlocked || !ready || gateDisabled || errors) reason = 'GATE';
+            else if (Date.now() > directUntil) reason = 'LEASE';
+            if (reason) {
+              note('MANAGEMENT_COMMAND_PASSED_' + reason + '_' + id.slice(0, 8));
               return accepted;
             }
-            directClaims.set(id, {when:Date.now()});
+            directClaims.set(id, {when:Date.now(), management:true});
             note('MANAGEMENT_COMMAND_CLAIMED');
             return accepted;
           }
