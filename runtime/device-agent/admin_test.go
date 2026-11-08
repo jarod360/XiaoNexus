@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -229,5 +230,40 @@ func TestOldUpdateCleanupProtectsLiveAndReferencedSlots(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Fatalf("protected directory %s lost: %v", name, err)
 		}
+	}
+}
+
+func TestLANHTTPRedirectRejectsForeignHostAndPost(t *testing.T) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var local net.IP
+	for _, addr := range addrs {
+		if ip, ok := addr.(*net.IPNet); ok && ip.IP.To4() != nil && ip.IP.IsPrivate() {
+			local = ip.IP
+			break
+		}
+	}
+	if local == nil {
+		t.Skip("no private IPv4 adapter")
+	}
+	call := func(method, host string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "http://"+host+"/admin/status?next=untrusted", nil)
+		req.RemoteAddr = net.JoinHostPort(local.String(), "45000")
+		req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: local, Port: 80}))
+		w := httptest.NewRecorder()
+		redirectLANToHTTPS(w, req)
+		return w
+	}
+	w := call(http.MethodGet, local.String())
+	if want := "https://" + net.JoinHostPort(local.String(), lanAdminPort) + "/"; w.Code != http.StatusFound || w.Header().Get("Location") != want {
+		t.Fatalf("redirect = %d %q, want %q", w.Code, w.Header().Get("Location"), want)
+	}
+	if w := call(http.MethodGet, "other.example"); w.Code != http.StatusForbidden || w.Header().Get("Location") != "" {
+		t.Fatal("redirect accepted an unrelated host")
+	}
+	if w := call(http.MethodPost, local.String()); w.Code != http.StatusMethodNotAllowed || w.Header().Get("Location") != "" {
+		t.Fatal("redirect accepted a credential-bearing POST")
 	}
 }

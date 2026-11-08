@@ -182,14 +182,12 @@ func (a *admin) serve(w http.ResponseWriter, r *http.Request) {
 	a.serveManagement(w, r)
 }
 
-const lanAdminAddress = "0.0.0.0:8765"
+const lanAdminPort = "8765"
+const lanAdminAddress = "0.0.0.0:" + lanAdminPort
 
 func (a *admin) serveLAN(w http.ResponseWriter, r *http.Request) {
-	local, ok := r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
-	peerHost, _, err := net.SplitHostPort(r.RemoteAddr)
-	peer := net.ParseIP(peerHost)
-	if !ok || err != nil || !local.IP.IsPrivate() || !peer.IsPrivate() ||
-		r.Host != local.String() || !sameLAN(local.IP, peer) {
+	local := localAdminPeer(r)
+	if local == nil || r.Host != local.String() {
 		http.Error(w, "local network access only", http.StatusForbidden)
 		return
 	}
@@ -198,6 +196,31 @@ func (a *admin) serveLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.serveManagement(w, r)
+}
+
+func redirectLANToHTTPS(w http.ResponseWriter, r *http.Request) {
+	local := localAdminPeer(r)
+	if local == nil || (r.Host != local.IP.String() && r.Host != local.String()) {
+		http.Error(w, "local network access only", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, "https://"+net.JoinHostPort(local.IP.String(), lanAdminPort)+"/", http.StatusFound)
+}
+
+func localAdminPeer(r *http.Request) *net.TCPAddr {
+	local, ok := r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
+	peerHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	peer := net.ParseIP(peerHost)
+	if !ok || err != nil || !local.IP.IsPrivate() || !peer.IsPrivate() || !sameLAN(local.IP, peer) {
+		return nil
+	}
+	return local
 }
 
 func sameLAN(local, peer net.IP) bool {
