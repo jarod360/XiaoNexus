@@ -191,6 +191,7 @@
   var directClaims = new Map(), priorDirectInstruction = new Map();
   var directHousekeeping = {
     'SpeechRecognizer.RecognizeResult':true,
+    'SpeechRecognizer.VoiceprintRecognizeResult':true,
     'SpeechRecognizer.StopCapture':true,
     'Dialog.Finish':true
   };
