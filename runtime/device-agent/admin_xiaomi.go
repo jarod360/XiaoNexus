@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -197,10 +198,21 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 		}
 		return
 	}
+	serial, _ := exec.CommandContext(a.Context, "/system/bin/getprop", "ro.serialno").Output()
+	wifi, _ := net.InterfaceByName("wlan0")
+	var mac net.HardwareAddr
+	if wifi != nil {
+		mac = wifi.HardwareAddr
+	}
+	localSerial := strings.TrimSpace(string(serial))
+	if localSerial == "" && len(mac) == 0 {
+		state(xiaomiStatus{State: "local_identity_unavailable"})
+		return
+	}
 	var choices []xiaomiDevice
 	verified := make(map[string]miservice.DeviceData)
 	for _, device := range devices {
-		if strings.EqualFold(device.Hardware, "LX04") && device.MiotDID != "" {
+		if matchesLocalSpeaker(device, localSerial, mac) {
 			name := device.Alias
 			if name == "" {
 				name = device.Name
@@ -213,7 +225,11 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 		}
 	}
 	if len(choices) == 0 {
-		state(xiaomiStatus{State: "no_devices"})
+		state(xiaomiStatus{State: "local_speaker_not_found"})
+		return
+	}
+	if len(choices) != 1 {
+		state(xiaomiStatus{State: "local_identity_ambiguous"})
 		return
 	}
 	state(xiaomiStatus{State: "select", Devices: choices})
@@ -247,6 +263,17 @@ func (x *xiaomiSetup) authorize(a *xiaomiAttempt, username, password string) {
 	saved = true
 	x.server.setSpeaker(box)
 	a.status = xiaomiStatus{State: "authorized"}
+}
+
+func matchesLocalSpeaker(device miservice.DeviceData, serial string, mac net.HardwareAddr) bool {
+	if !strings.EqualFold(device.Hardware, "LX04") || device.MiotDID == "" || device.DeviceID == "" {
+		return false
+	}
+	if serial != "" && strings.EqualFold(strings.TrimSpace(device.SerialNumber), serial) {
+		return true
+	}
+	deviceMAC, err := net.ParseMAC(strings.TrimSpace(device.Mac))
+	return len(mac) != 0 && err == nil && deviceMAC.String() == mac.String()
 }
 
 func (a *admin) serveXiaomi(w http.ResponseWriter, r *http.Request) {

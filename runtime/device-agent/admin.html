@@ -24,6 +24,7 @@ body{line-height:1.55;background:#eef3ef}header{background:linear-gradient(125de
 <section id="xiaomiCard" hidden>
   <h2>小米账号与音箱</h2>
   <p id="xiaomiState"></p>
+  <p class="muted">只能绑定安装了当前 XiaoNexus 的这台 LX04。其他音箱即使在同一账号下，也不会出现在绑定列表中。</p>
   <p id="protectedHint" class="muted" hidden>通过安装器提供的本机入口或可信 HTTPS 连接操作授权、试播和新密钥填写。</p>
   <details id="xiaomiEdit">
     <summary id="xiaomiEditTitle">绑定小米音箱</summary>
@@ -332,9 +333,12 @@ function renderXiaomi() {
   const x = status.xiaomi;
   const states = {
     working:"正在连接小米服务…", otp:"小米要求二次验证，请填写收到的验证码。",
-    select:"请选择要连接的 LX04。", authorized:"音箱已授权，可发送试播。",
+    select:"已找到安装 XiaoNexus 的本机，请确认绑定。", authorized:"音箱已授权，可发送试播。",
     expired:"授权已过期，请重新开始。", manual_verification:"小米要求额外验证。请先在小米账号中心处理，再回来重试。",
-    login_failed:"小米登录失败，请检查账号、密码或网络。", no_devices:"该账号下没有可选择的 LX04。",
+    login_failed:"小米登录失败，请检查账号、密码或网络。",
+    local_speaker_not_found:"未在该账号下找到与本机标识匹配的 LX04。请确认米家里绑定的是安装 XiaoNexus 的这台音箱。",
+    local_identity_unavailable:"无法读取本机标识，暂时无法绑定。",
+    local_identity_ambiguous:"账号中的设备记录与本机标识匹配到多台音箱，暂时无法绑定。",
     device_failed:"音箱连接验证失败，请检查设备状态。", save_failed:"授权配置写入失败。",
     rate_limited:"小米暂时限制登录，请稍后再试。"
   };
